@@ -1,0 +1,22 @@
+{
+  "attribution": {
+    "commit": "",
+    "pr": "",
+    "sessionUrl": false
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if python3 -c '' >/dev/null 2>&1; then exec python3 scripts/gates.py --hook; else exec python scripts/gates.py --hook; fi",
+            "timeout": 180,
+            "statusMessage": "Running the gates"
+          }
+        ]
+      }
+    ]
+  }
+}
