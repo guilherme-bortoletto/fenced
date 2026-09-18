@@ -3,6 +3,8 @@
 The six fences live in tests and run with the rest of the suite through pytest.
 The text rules live here, because they also have to run on something that is not
 a file in this tree, such as the body of an issue or the prompt of a scheduled run.
+One of them is attribution and a session link, which nobody writes and a publishing tool
+appends on its own, so the rule reads a file as it stands rather than as prose.
 
     python scripts/gates.py                    the whole suite and the text rules over the tree
     python scripts/gates.py --text             text rules over every tracked text file
@@ -24,11 +26,13 @@ from __future__ import annotations
 import argparse
 import ast
 import importlib.util
+import io
 import json
 import os
 import re
 import subprocess
 import sys
+import tokenize
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -59,8 +63,14 @@ AUTHORING = re.compile(rf"{REACHES_OUT}(?<!\w)(?:{AUTHORING_VERBS})(?![\w\-])")
 # One word of a command, with or without the quotes a shell would take off.
 WORD = r"('[^']*'|\"[^\"]*\"|\S+)"
 MESSAGE = re.compile(rf"-{{1,2}}m(?:essage)?[=\s]+{WORD}")
+# Attribution and a link back to the run that wrote the text. Nobody types either one.
+# A tool appends them after the text was written, which is after a person read it, so the
+# same pattern runs over the message of a git command and over a file about to be published.
 ATTRIBUTION = re.compile(
-    r"co-authored-by:\s*claude|generated with .{0,4}claude|claude\.ai/|claude\.com/claude-code",
+    r"co-authored-by:\s*claude"
+    r"|generated (?:with|by) .{0,4}claude"
+    r"|claude\.ai/"
+    r"|claude\.com/claude-code",
     re.IGNORECASE,
 )
 
@@ -139,15 +149,36 @@ def python_prose(text: str) -> list[tuple[int, str]]:
     return prose
 
 
+def python_comments(text: str) -> list[tuple[int, str]]:
+    """Numbered comment lines.
+
+    A comment and a docstring are the text of a Python file. A string literal is data the
+    program holds, and it stays data here, because a gate that names a form has to carry
+    that form as a literal to refuse it anywhere else.
+    """
+    found = []
+    try:
+        for token in tokenize.generate_tokens(io.StringIO(text).readline):
+            if token.type == tokenize.COMMENT:
+                found.append((token.start[0], token.string))
+    except (tokenize.TokenError, IndentationError) as broken:
+        raise SyntaxError(str(broken)) from broken
+    return found
+
+
 def text_problems(name: str, text: str, terms: list[str]) -> list[str]:
     """Rule breaks in one piece of text, reported as one line each."""
     if name.endswith(".py"):
         try:
             prose = python_prose(text)
+            public = sorted(set(prose + python_comments(text)))
         except SyntaxError as broken:
             return [f"{name}: will not parse, {broken}"]
     else:
         prose = markdown_prose(text)
+        # Every line as it stands. Markdown prose has the links taken out of it, and a link
+        # is half of what this looks for.
+        public = list(enumerate(text.splitlines(), start=1))
     found = []
     for number, line in prose:
         # A bullet and a rule across the page are marks, not punctuation.
@@ -157,6 +188,9 @@ def text_problems(name: str, text: str, terms: list[str]) -> list[str]:
         for label, pattern in TEXT_RULES:
             if re.search(pattern, line):
                 found.append(f"{name}:{number} uses {label}")
+    for number, line in public:
+        if ATTRIBUTION.search(line):
+            found.append(f"{name}:{number} carries attribution or a session link")
     for term in terms:
         for number, line in enumerate(text.splitlines(), start=1):
             if re.search(term, line, re.IGNORECASE):
@@ -289,6 +323,13 @@ def identity_problems(command: str, root: Path) -> list[str]:
     return found
 
 
+def message_problems(command: str) -> list[str]:
+    """Attribution in the message of a git command, which is text no file ever holds."""
+    if ATTRIBUTION.search(" ".join(MESSAGE.findall(command))):
+        return ["this message carries attribution, which this repository never uses"]
+    return []
+
+
 def run_hook(terms_file: str | None, root: Path) -> int:
     """Block the commit when anything is wrong, and block it when the check breaks."""
     try:
@@ -302,9 +343,7 @@ def run_hook(terms_file: str | None, root: Path) -> int:
     if not GUARDED.search(command):
         return 0
     found = check_tests(root) + check_text([], load_terms(terms_file), root)
-    found += identity_problems(command, root)
-    if ATTRIBUTION.search(" ".join(MESSAGE.findall(command))):
-        found.append("this message carries attribution, which this repository never uses")
+    found += identity_problems(command, root) + message_problems(command)
     if not found:
         return 0
     sys.stderr.write("gates: blocked\n" + "\n".join(found) + "\n")

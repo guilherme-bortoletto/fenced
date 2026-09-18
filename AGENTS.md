@@ -23,6 +23,8 @@ When a term is borderline, it stays out.
 
 No dash used as punctuation and no semicolon, in Markdown or in a docstring. Short sentences. Describe what is there instead of selling it.
 
+No attribution and no session link, in any file. Nobody writes that line. A tool appends it after the text was written, so the gate refuses it in a file it is given and in every tracked text file. A Markdown file is read as it stands, link and all. A Python file is read as its docstrings and its comments, which is what lets the pattern live in the code that refuses it and in the test that plants it. That decision is `docs/adr/0004-the-text-gate-reads-a-python-file-as-its-docstrings-and-its-comments.md`.
+
 No sales slogan, in a name, a comment or a heading. Write what the code does. It answers when the person wrote, it separates who is likely to buy by a written rule, and it hands the decision back to a person.
 
 ## Before every commit
@@ -54,7 +56,7 @@ A small ambiguity is decided and listed under Decisions I made. A real blocker g
 
 Write to GitHub through `gh api repos/{owner}/{repo}/...`, because GraphQL may be refused.
 
-The body of an issue and the body of a pull request are public text that no commit hook sees. Run `python scripts/gates.py --text <file>` over each one before it is published.
+The body of an issue and the body of a pull request are public text that no commit hook sees. Run `python scripts/gates.py --text <file>` over each one before it is published, and over the body read back afterwards, because the line a publishing tool appends arrives after the gate has read the file.
 
 ## Never
 
