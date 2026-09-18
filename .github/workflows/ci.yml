@@ -1,10 +1,12 @@
 name: ci
 
-# Only main and pull requests. A branch with an open pull request is covered by the
-# pull request event, so pushing early does not queue the same checks twice.
+# Main, a night branch, and pull requests. A pull request opened with the token a workflow
+# runs with starts no workflow run of its own, so a branch that gets its pull request from
+# pull-request.yml would carry no checks at all without the line below. A branch whose pull
+# request a person opens by hand queues both, which is the rarer case and cheap.
 on:
   push:
-    branches: [main]
+    branches: [main, "claude/**"]
   pull_request:
 
 permissions:
