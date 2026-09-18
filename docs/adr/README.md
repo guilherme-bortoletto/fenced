@@ -11,3 +11,4 @@ below fails the build, and so does a row below that points at a file that is not
 |---|---|
 | [0001 Architecture rules live in tests](0001-architecture-rules-live-in-tests.md) | accepted |
 | [0002 Awareness is a closed set and the boundary refuses instead of coercing](0002-awareness-is-closed-and-the-boundary-refuses.md) | accepted |
+| [0003 A score is a weighted sum of three bounded dimensions](0003-a-score-is-a-weighted-sum-of-three-bounded-dimensions.md) | accepted |
