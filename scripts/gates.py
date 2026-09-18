@@ -18,6 +18,10 @@ be, because naming what you are hiding in the place you are hiding it from is no
 a gate. Point at it from outside with --terms-file, or with FENCED_TERMS_FILE so
 that no path belonging to one machine is written down here.
 
+A term is read across the whitespace that hides it, so a term written over a line
+break and a term written with a space inside it are refused like the term itself.
+What that costs is docs/adr/0007-a-private-term-is-read-across-whitespace.md
+
 Every failure mode ends in a refusal. A gate that cannot run is a gate that failed.
 """
 
@@ -48,6 +52,10 @@ TEST_TIMEOUT = 120
 MARKER = re.compile(r"^\s*[-*+]\s+")
 RULE_ACROSS = re.compile(r"^[-*_:|\s]+$")
 TEXT_SUFFIXES = (".md", ".py")
+# What a run of whitespace becomes in the two views a term is read in besides the text as
+# it stands. One space carries a term of two words over a line break. Nothing at all carries
+# a term of one word over a line break and over a space written inside it.
+COLLAPSE_TO = (" ", "")
 SKIP_DIRS = {".git", "__pycache__", ".pytest_cache", ".venv", "build", "dist", ".fenced"}
 
 # Anything that could carry work out of this machine, in any spelling a shell allows.
@@ -166,6 +174,56 @@ def python_comments(text: str) -> list[tuple[int, str]]:
     return found
 
 
+def collapsed(text: str, filler: str) -> tuple[str, list[int]]:
+    """The text with every run of whitespace replaced by filler, and where each character was.
+
+    The second value has one line number per character of the first, so a match found in a
+    view of the text is still reported at a line a person can open the file at.
+    """
+    kept = []
+    lines = []
+    number = 1
+    inside_run = False
+    for character in text:
+        if character.isspace():
+            if filler and not inside_run:
+                kept.append(filler)
+                lines.append(number)
+            inside_run = True
+            if character == "\n":
+                number += 1
+            continue
+        inside_run = False
+        kept.append(character)
+        lines.append(number)
+    return "".join(kept), lines
+
+
+def term_problems(name: str, text: str, terms: list[str]) -> list[str]:
+    """Every line a private term reaches, including the lines whitespace was hiding it on.
+
+    A term is read three ways. As the text stands, one line at a time, which is the only
+    view that keeps a term written with whitespace inside it. Then with every run of
+    whitespace turned into one space, and then with every run of whitespace taken out, both
+    over the whole text, because a line break is whitespace like any other and a term does
+    not stop being the term for being written across one. A term found more than once on a
+    line is one line.
+    """
+    views = [collapsed(text, filler) for filler in COLLAPSE_TO]
+    found = []
+    for term in terms:
+        numbers = set()
+        for number, line in enumerate(text.splitlines(), start=1):
+            if re.search(term, line, re.IGNORECASE):
+                numbers.add(number)
+        for view, lines in views:
+            for match in re.finditer(term, view, re.IGNORECASE):
+                if lines:
+                    numbers.add(lines[min(match.start(), len(lines) - 1)])
+        found += [f"{name}:{number} matches the private term {term}" for number in sorted(numbers)]
+    return found
+
+
 def text_problems(name: str, text: str, terms: list[str]) -> list[str]:
     """Rule breaks in one piece of text, reported as one line each."""
     if name.endswith(".py"):
@@ -191,11 +249,7 @@ def text_problems(name: str, text: str, terms: list[str]) -> list[str]:
     for number, line in public:
         if ATTRIBUTION.search(line):
             found.append(f"{name}:{number} carries attribution or a session link")
-    for term in terms:
-        for number, line in enumerate(text.splitlines(), start=1):
-            if re.search(term, line, re.IGNORECASE):
-                found.append(f"{name}:{number} matches the private term {term}")
-    return found
+    return found + term_problems(name, text, terms)
 
 
 def check_text(paths: list[Path], terms: list[str], root: Path) -> list[str]:

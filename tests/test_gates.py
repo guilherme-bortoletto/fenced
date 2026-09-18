@@ -5,7 +5,9 @@ because who a commit says it is from is not in any file until the commit already
 The text gate reads a file, including one that is not in this tree at all, such as the
 body of a pull request on its way out.
 
-The last tests plant a body carrying attribution and expect the gate to refuse it.
+The tests after those plant a body carrying attribution and expect the gate to refuse it.
+The last ones plant a term from a list written here, whole, written across a line break and
+written with a space inside it, and expect a refusal each time.
 """
 
 from __future__ import annotations
@@ -32,6 +34,12 @@ APPENDED = (
     "https://claude.com/claude-code",
 )
 CARRIES = "carries attribution or a session link"
+
+# A word invented for these tests. The list a real term comes from belongs to a machine,
+# and planting one here to prove the gate refuses it would publish the term itself.
+PLANTED = "wintermute"
+SPLIT_OVER_A_BREAK = "Closes #1\n\nOne winter\nmute of a word.\n"
+MATCHES = f"matches the private term {PLANTED}"
 
 
 def load_gates():
@@ -172,3 +180,77 @@ def test_the_text_gate_refuses_attribution_in_the_message_of_a_command():
         command = f"git commit -m 'a step' -m '{appended}'"
         assert gates.message_problems(command) == [refusal], appended
     assert gates.message_problems("git commit -m 'a step'") == []
+
+
+def test_the_text_gate_refuses_a_term_written_across_a_line_break(tmp_path):
+    body = tmp_path / "body.md"
+    body.write_text(SPLIT_OVER_A_BREAK, encoding="utf-8")
+    assert gates.check_text([body], [PLANTED], tmp_path) == [f"body.md:3 {MATCHES}"]
+
+
+def test_the_text_gate_refuses_a_term_written_with_a_space_inside_it(tmp_path):
+    body = tmp_path / "body.md"
+    body.write_text("Closes #1\n\nOne winter mute of a word.\n", encoding="utf-8")
+    assert gates.check_text([body], [PLANTED], tmp_path) == [f"body.md:3 {MATCHES}"]
+
+
+def test_the_text_gate_refuses_a_term_of_two_words_across_a_line_break(tmp_path):
+    """The view that keeps one space, which is the only one a term of two words survives."""
+    body = tmp_path / "body.md"
+    body.write_text(SPLIT_OVER_A_BREAK, encoding="utf-8")
+    assert gates.check_text([body], ["winter mute"], tmp_path) == [
+        "body.md:3 matches the private term winter mute"
+    ]
+
+
+def test_the_text_gate_reports_a_term_once_for_the_line_it_starts_on(tmp_path):
+    """Three views of one text, and a term written twice on a line is still one line."""
+    body = tmp_path / "body.md"
+    body.write_text("One wintermute and one winter\nmute.\n", encoding="utf-8")
+    assert gates.check_text([body], [PLANTED], tmp_path) == [f"body.md:1 {MATCHES}"]
+
+
+def test_the_text_gate_leaves_text_holding_no_term_alone(tmp_path):
+    body = tmp_path / "body.md"
+    body.write_text(BODY, encoding="utf-8")
+    assert gates.check_text([body], [PLANTED], tmp_path) == []
+
+
+def test_the_text_gate_reads_a_tracked_file_the_way_it_reads_a_file_it_is_given(tmp_path):
+    """The default run and a file named on the command line are one route through one check."""
+    here = clone(tmp_path)
+    planted = here / "notes.md"
+    planted.write_text(SPLIT_OVER_A_BREAK, encoding="utf-8")
+    assert gates.check_text([], [PLANTED], here) == [f"notes.md:3 {MATCHES}"]
+    assert gates.check_text([planted], [PLANTED], here) == [f"notes.md:3 {MATCHES}"]
+
+
+def test_a_term_arrives_from_a_list_that_is_not_in_this_repository(tmp_path, monkeypatch):
+    """The whole route, from a list written for this test to a refusal."""
+    listed = tmp_path / "terms.txt"
+    listed.write_text(f"# a list written for this test\n\n{PLANTED}\n", encoding="utf-8")
+    monkeypatch.setenv("FENCED_TERMS_FILE", str(listed))
+    assert gates.load_terms(None) == [PLANTED]
+    body = tmp_path / "body.md"
+    body.write_text(SPLIT_OVER_A_BREAK, encoding="utf-8")
+    assert gates.check_text([body], gates.load_terms(None), tmp_path) == [f"body.md:3 {MATCHES}"]
+
+
+def test_a_short_term_matches_inside_two_ordinary_words(tmp_path):
+    """What reading a term with the whitespace gone costs, planted so it is not a surprise.
+
+    The record is docs/adr/0007-a-private-term-is-read-across-whitespace.md
+    """
+    body = tmp_path / "body.md"
+    body.write_text("Then the person arrived.\n", encoding="utf-8")
+    assert gates.check_text([body], ["sonar"], tmp_path) == [
+        "body.md:1 matches the private term sonar"
+    ]
+
+
+def test_the_collapsed_views_say_which_line_each_character_came_from(tmp_path):
+    for filler in gates.COLLAPSE_TO:
+        view, lines = gates.collapsed("ab\n\n  cd\n", filler)
+        assert len(view) == len(lines), filler
+        assert view.replace(" ", "") == "abcd", filler
+        assert lines[0] == 1 and lines[-1] == 3, filler
