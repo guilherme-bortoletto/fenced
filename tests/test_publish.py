@@ -3,7 +3,8 @@
 Every test here plants something the publisher has to refuse, and then asks what
 reached the wire. A body that breaks a text rule must not be sent at all. A body that
 came back changed must not be repaired, because the repair is the second version that
-the history of the body keeps for good.
+the history of the body keeps for good. A branch that already has a pull request gets
+nothing at all, because the workflow that calls this runs on every push to the branch.
 
 The transport is a fake that records the calls, so nothing in this file reaches GitHub.
 """
@@ -11,6 +12,7 @@ The transport is a fake that records the calls, so nothing in this file reaches 
 from __future__ import annotations
 
 import importlib.util
+import re
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -44,20 +46,32 @@ publish = load_publish()
 
 
 class Fake:
-    """A transport that records every call and answers with a body of its choosing."""
+    """A transport that records every call and answers with a body of its choosing.
 
-    def __init__(self, stored: str | None = None, number: int = 7):
+    The listing the publisher asks for first is empty here, which is a branch with no
+    pull request on it yet. A test that wants the other answer passes `standing`.
+    """
+
+    def __init__(self, stored: str | None = None, number: int = 7, standing: list | None = None):
         self.calls = []
         self.stored = stored
         self.number = number
+        self.standing = standing or []
 
     def __call__(self, method, url, payload, key):
         self.calls.append({"method": method, "url": url, "payload": payload, "key": key})
+        if method == "GET" and "pulls?" in url:
+            return self.standing
         if method == "POST":
             self.sent = (payload or {}).get("body")
             return {"number": self.number, "html_url": f"https://github.com/o/r/pull/{self.number}"}
         kept = self.stored if self.stored is not None else self.sent
         return {"number": self.number, "body": kept}
+
+
+def methods(fake) -> list[str]:
+    """What the publisher did, with the listing that opens every run left out."""
+    return [call["method"] for call in fake.calls if "pulls?" not in call["url"]]
 
 
 @pytest.fixture(autouse=True)
@@ -75,10 +89,34 @@ def opened(transport, title=TITLE, body=BODY, terms=()):
 def test_the_body_that_reaches_the_wire_is_the_body_that_was_written():
     fake = Fake()
     made = opened(fake)
-    assert fake.calls[0]["method"] == "POST"
-    assert fake.calls[0]["payload"]["body"] == BODY
-    assert fake.calls[0]["payload"]["title"] == TITLE
-    assert made == {"number": 7, "url": "https://github.com/o/r/pull/7"}
+    posted = [call for call in fake.calls if call["method"] == "POST"]
+    assert len(posted) == 1
+    assert posted[0]["payload"]["body"] == BODY
+    assert posted[0]["payload"]["title"] == TITLE
+    assert made == {"number": 7, "url": "https://github.com/o/r/pull/7", "published": True}
+
+
+def test_a_branch_that_already_has_a_pull_request_gets_nothing():
+    """The workflow runs on every push to the branch. One of them opens the pull request."""
+    fake = Fake(standing=[{"number": 4, "html_url": "https://github.com/o/r/pull/4"}])
+    made = opened(fake)
+    assert made == {"number": 4, "url": "https://github.com/o/r/pull/4", "published": False}
+    assert methods(fake) == []
+
+
+def test_a_closed_pull_request_on_the_branch_is_not_opened_again():
+    fake = Fake(standing=[{"number": 4, "state": "closed", "html_url": ""}])
+    assert opened(fake)["published"] is False
+    assert methods(fake) == []
+
+
+def test_the_listing_asks_for_this_branch_and_reads_every_state():
+    fake = Fake()
+    opened(fake)
+    asked = fake.calls[0]["url"]
+    assert asked.startswith("https://api.github.com/repos/o/r/pulls?")
+    assert "head=o%3Aclaude%2Fissue-1" in asked
+    assert "state=all" in asked
 
 
 @pytest.mark.parametrize("line", APPENDED)
@@ -121,7 +159,7 @@ def test_a_stored_body_that_gained_a_line_is_refused_and_left_alone(line):
     with pytest.raises(publish.Refused) as refused:
         opened(fake)
     assert CARRIES in str(refused.value)
-    assert [call["method"] for call in fake.calls] == ["POST", "GET"]
+    assert methods(fake) == ["POST", "GET"]
 
 
 def test_a_stored_body_that_disagrees_is_refused_and_left_alone():
@@ -129,7 +167,7 @@ def test_a_stored_body_that_disagrees_is_refused_and_left_alone():
     with pytest.raises(publish.Refused) as refused:
         opened(fake)
     assert "does not hold the body that was sent" in str(refused.value)
-    assert [call["method"] for call in fake.calls] == ["POST", "GET"]
+    assert methods(fake) == ["POST", "GET"]
 
 
 def test_the_line_endings_github_stores_are_not_a_disagreement():
@@ -140,14 +178,20 @@ def test_the_line_endings_github_stores_are_not_a_disagreement():
 def test_an_answer_with_no_number_is_refused():
     class Empty(Fake):
         def __call__(self, method, url, payload, key):
-            self.calls.append(method)
-            return {}
+            self.calls.append({"method": method, "url": url, "payload": payload, "key": key})
+            return [] if "pulls?" in url else {}
 
     fake = Empty()
     with pytest.raises(publish.Refused) as refused:
         opened(fake)
     assert "no pull request number" in str(refused.value)
-    assert fake.calls == ["POST"]
+    assert methods(fake) == ["POST"]
+
+
+def test_a_listing_that_is_not_a_listing_is_not_read_as_a_pull_request():
+    """A shape nobody expected is not a pull request, and the branch still gets one."""
+    fake = Fake(standing={"number": 4})
+    assert opened(fake)["published"] is True
 
 
 def test_nothing_is_sent_without_a_token(monkeypatch):
@@ -184,3 +228,45 @@ def test_there_is_no_route_in_here_that_changes_a_body_that_already_exists():
     source = (ROOT / "scripts" / "publish.py").read_text(encoding="utf-8")
     for method in ("PATCH", "PUT"):
         assert method not in source
+
+
+# The workflow that makes the call. The text comes from the branch and the rules come from
+# main, so a branch that edited the gate or the publisher edits neither.
+
+WORKFLOW = ROOT / ".github" / "workflows" / "pull-request.yml"
+RULES_PATH = "rules-from-main"
+SCRIPT_CALL = re.compile(r"(?<![\w/-])(\S*)scripts/(gates|publish)\.py")
+
+
+def rules_from_the_branch(text: str) -> list[str]:
+    """Every line of the workflow that would run the branch's own gate or publisher.
+
+    A comment is prose and runs nothing, so it is read past. What is left is the commands,
+    and each one has to name the checkout of main that the rules are read from.
+    """
+    found = []
+    if f"path: {RULES_PATH}" not in text or "ref: refs/heads/main" not in text:
+        found.append("the workflow does not check main out into a path of its own")
+    for number, line in enumerate(text.splitlines(), start=1):
+        if line.lstrip().startswith("#"):
+            continue
+        for prefix, script in SCRIPT_CALL.findall(line):
+            if prefix != f"{RULES_PATH}/":
+                found.append(f"line {number} runs scripts/{script}.py from the branch")
+    return found
+
+
+def test_the_workflow_runs_the_gate_and_the_publisher_from_main():
+    assert rules_from_the_branch(WORKFLOW.read_text(encoding="utf-8")) == []
+
+
+def test_a_workflow_that_runs_the_publisher_from_the_branch_is_refused():
+    planted = WORKFLOW.read_text(encoding="utf-8").replace(
+        f"{RULES_PATH}/scripts/publish.py", "scripts/publish.py"
+    )
+    assert [line for line in rules_from_the_branch(planted) if "publish.py" in line]
+
+
+def test_a_workflow_that_never_checks_main_out_is_refused():
+    planted = WORKFLOW.read_text(encoding="utf-8").replace(f"path: {RULES_PATH}", "path: rules")
+    assert "does not check main out" in "\n".join(rules_from_the_branch(planted))

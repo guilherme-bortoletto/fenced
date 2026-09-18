@@ -12,6 +12,16 @@ file and the wire, so nothing can append to it.
     python scripts/publish.py --owner OWNER --repo REPO --head BRANCH --base main \
         --title-file TITLE --body-file BODY
 
+It runs on a workflow runner and not on the machine a night run works in. Nothing in
+here can tell the difference, and that is the point. The path out of that machine
+appends a line of its own after the gate has read the file, so the file travels to
+GitHub as a commit on a branch and the call is made from the other end.
+
+Before it posts it asks GitHub whether the branch already has a pull request. A branch
+is pushed many times in one run and the workflow runs on each push. The push that
+carries the two files opens the pull request. Every push after it publishes nothing,
+which is what writing a body once means when the trigger repeats.
+
 The token arrives in GITHUB_TOKEN or in GH_TOKEN and is never written down here.
 
 After the call the script reads the pull request back and compares it to what it sent.
@@ -30,6 +40,7 @@ import json
 import os
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -57,8 +68,8 @@ def token() -> str:
     raise Refused("no token in the environment, so nothing was published")
 
 
-def send(method: str, url: str, payload: dict | None, key: str) -> dict:
-    """One REST call, returning the answer as a dictionary."""
+def send(method: str, url: str, payload: dict | None, key: str) -> dict | list:
+    """One REST call, returning the answer as it came, a dictionary or a list."""
     data = json.dumps(payload).encode("utf-8") if payload is not None else None
     request = urllib.request.Request(
         url,
@@ -102,6 +113,19 @@ def as_sent(text: str) -> str:
     return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
+def already_there(owner: str, repo: str, head: str, key: str, transport) -> dict | None:
+    """The pull request this branch already has, or nothing when it has none.
+
+    Open and closed both count. A closed pull request is a decision somebody made, and
+    a push that opened a second one would take that decision back without saying so.
+    """
+    query = urllib.parse.urlencode({"head": f"{owner}:{head}", "state": "all", "per_page": 1})
+    listed = transport("GET", f"{API}/repos/{owner}/{repo}/pulls?{query}", None, key)
+    if isinstance(listed, list) and listed and isinstance(listed[0], dict):
+        return listed[0]
+    return None
+
+
 def publish(
     owner: str,
     repo: str,
@@ -117,20 +141,32 @@ def publish(
     The gate runs before the call, because text that breaks a rule must not reach
     GitHub at all. It runs again on what came back, because the only thing that
     proves nothing was appended is the stored body itself.
+
+    A branch that already has a pull request gets nothing. That is what the workflow
+    needs to run on every push to a branch and still write one body.
     """
     gate("the title", title, terms)
     gate("the body", body, terms)
     key = token()
+    standing = already_there(owner, repo, head, key, transport)
+    if standing is not None:
+        return {
+            "number": standing.get("number"),
+            "url": standing.get("html_url", ""),
+            "published": False,
+        }
     made = transport(
         "POST",
         f"{API}/repos/{owner}/{repo}/pulls",
         {"title": title, "head": head, "base": base, "body": body},
         key,
     )
-    number = made.get("number")
+    number = made.get("number") if isinstance(made, dict) else None
     if not number:
         raise Refused(f"the answer carried no pull request number, {made}")
     stored = transport("GET", f"{API}/repos/{owner}/{repo}/pulls/{number}", None, key)
+    if not isinstance(stored, dict):
+        raise Refused(f"pull request {number} did not read back as a pull request, {stored}")
     kept = as_sent(stored.get("body") or "")
     gate(f"pull request {number} as it stands", kept, terms)
     if kept != as_sent(body):
@@ -138,7 +174,7 @@ def publish(
             f"pull request {number} does not hold the body that was sent, and it was left "
             f"as it is, because an edit is what records the difference for good"
         )
-    return {"number": number, "url": made.get("html_url", "")}
+    return {"number": number, "url": made.get("html_url", ""), "published": True}
 
 
 def main(argv: list[str]) -> int:
@@ -167,6 +203,12 @@ def main(argv: list[str]) -> int:
     except Exception as broken:
         sys.stderr.write(f"publish: the call itself broke, so nothing is assumed, {broken}\n")
         return 1
+    if not opened["published"]:
+        print(
+            f"publish: this branch already has pull request {opened['number']}, "
+            f"so nothing was published"
+        )
+        return 0
     print(f"publish: pull request {opened['number']} {opened['url']}")
     return 0
 

@@ -1,0 +1,73 @@
+name: pull request
+
+# A pull request body leaves this repository from here and from nowhere else.
+# The machine a night run works in has a path out that appends a line naming the agent
+# and linking to its run, after the gate has read the file and before GitHub stores it.
+# No program inside that machine can walk around it, so the body travels as a commit on
+# the branch and the call is made from this runner instead.
+on:
+  push:
+    branches: ["claude/**"]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  # One publish at a time per branch, and never cancelled, because a cancelled job can
+  # leave a pull request opened and unchecked.
+  group: pull-request-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  open:
+    if: ${{ !github.event.deleted }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      # The text comes from the branch and the rules come from main. The checkout above is
+      # the pushed branch, and a branch says what its pull request says. It does not say
+      # what the gate refuses or what the publisher is allowed to do. A branch that edited
+      # either script would be editing the rules this job runs while the job holds write on
+      # pull requests, so both are read from main. This checkout is second because the one
+      # above cleans the workspace it lands in.
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: refs/heads/main
+          path: rules-from-main
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+      - name: the title and the body
+        id: files
+        run: |
+          if [ -f .github/pull-request/title.md ] && [ -f .github/pull-request/body.md ]; then
+            echo "ready=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=no" >> "$GITHUB_OUTPUT"
+            echo "this branch carries no title and no body, so nothing is published"
+          fi
+      - name: text rules
+        if: steps.files.outputs.ready == 'yes'
+        run: |
+          python rules-from-main/scripts/gates.py --text \
+            .github/pull-request/title.md \
+            .github/pull-request/body.md
+      - name: publish
+        if: steps.files.outputs.ready == 'yes'
+        # The branch name reaches the shell through the environment and never through
+        # the text of the command, because a branch name is not this workflow to write.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          python rules-from-main/scripts/publish.py \
+            --owner "$OWNER" \
+            --repo "$REPO" \
+            --head "$BRANCH" \
+            --base main \
+            --title-file .github/pull-request/title.md \
+            --body-file .github/pull-request/body.md
