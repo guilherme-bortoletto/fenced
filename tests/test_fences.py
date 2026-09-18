@@ -32,6 +32,7 @@ DOORS_TO_THE_OUTSIDE = {
     "socketserver", "multiprocessing", "logging", "zipfile", "tarfile", "gzip",
     "bz2", "lzma", "glob", "fileinput", "linecache", "configparser", "netrc",
     "platform", "getpass", "zoneinfo", "runpy", "code",
+    "pkgutil", "zipimport", "modulefinder", "sysconfig", "site",
 }
 # Standard library, and a door of the other kind. What comes back is not in the arguments
 # and is not the same twice, so a rule that reads one is a rule no test can pin. A clock,
@@ -441,6 +442,26 @@ def test_the_import_fence_rejects_a_clock_and_a_source_of_randomness(tmp_path):
         "src/fenced/domain/recency.py imports random, which answers from outside the arguments",
         "src/fenced/domain/recency.py imports ctypes.CDLL, which reaches outside",
     ]
+
+
+def test_the_import_fence_rejects_every_way_to_import_a_module_by_name(tmp_path):
+    planted = tmp_path / "src" / "fenced" / "domain"
+    planted.mkdir(parents=True)
+    for name in ("importlib", "runpy", "pkgutil", "zipimport", "modulefinder"):
+        planted.joinpath("lead.py").write_text(f"import {name}\n", encoding="utf-8")
+        assert impure_imports(tmp_path) == [
+            f"src/fenced/domain/lead.py imports {name}, which reaches outside"
+        ], f"{name} slipped through"
+
+
+def test_the_import_fence_rejects_reading_the_install_layout(tmp_path):
+    planted = tmp_path / "src" / "fenced" / "ports"
+    planted.mkdir(parents=True)
+    for name in ("sysconfig", "site"):
+        planted.joinpath("crm.py").write_text(f"import {name}\n", encoding="utf-8")
+        assert impure_imports(tmp_path) == [
+            f"src/fenced/ports/crm.py imports {name}, which reaches outside"
+        ], f"{name} slipped through"
 
 
 def test_the_import_fence_rejects_every_module_it_calls_a_door(tmp_path):
