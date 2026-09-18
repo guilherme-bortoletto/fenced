@@ -26,7 +26,7 @@ that journal.
 
 | Rule | How the test checks it | What breaks without it |
 |---|---|---|
-| `domain/` and `ports/` import only the standard library | reads the imports with `ast` | the business rules stop being testable offline |
+| `domain/` and `ports/` answer from their arguments and nothing else | reads the imports and the calls with `ast` | the business rules stop being testable offline |
 | the name of a model provider appears in one adapter and nowhere else | text search across `src/` | changing model turns into starting over |
 | nothing persists a record outside `writes/` | finds the calls with `ast` | simulation, journal and undo are lost together |
 | a prompt carries no price, product or person | reads the prompt constants and the example data | the model starts knowing what it should have asked |

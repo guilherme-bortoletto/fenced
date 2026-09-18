@@ -23,10 +23,21 @@ ROOT = Path(__file__).resolve().parent.parent
 
 PURE_PACKAGES = ("domain", "ports")
 # Standard library, and still a door to the outside. A pure domain opens none of them.
+# The list is written by name and grows by name, which `docs/adr/0005` explains.
 DOORS_TO_THE_OUTSIDE = {
     "socket", "ssl", "http", "urllib", "ftplib", "smtplib", "poplib", "imaplib",
     "subprocess", "webbrowser", "xmlrpc", "sqlite3", "shutil", "tempfile",
     "os", "io", "pathlib", "pickle", "shelve", "dbm", "importlib", "builtins",
+    "sys", "ctypes", "mmap", "fcntl", "select", "selectors", "signal", "asyncio",
+    "socketserver", "multiprocessing", "logging", "zipfile", "tarfile", "gzip",
+    "bz2", "lzma", "glob", "fileinput", "linecache", "configparser", "netrc",
+    "platform", "getpass", "zoneinfo", "runpy", "code",
+}
+# Standard library, and a door of the other kind. What comes back is not in the arguments
+# and is not the same twice, so a rule that reads one is a rule no test can pin. A clock,
+# a source of randomness and a second thread of execution are the three that matter.
+SOURCES_OUTSIDE_THE_ARGUMENTS = {
+    "time", "datetime", "random", "secrets", "uuid", "threading",
 }
 NETWORK_NAMES = ("openai", "anthropic", "gemini", "httpx", "requests")
 LLM_ADAPTER = Path("src/fenced/adapters/llm_extractor.py")
@@ -34,8 +45,10 @@ WRITE_CALLS = ("commit", "create_lead", "create_task")
 CRM_MODULES = ("fenced.ports.crm", "fenced.adapters.json_crm")
 MAY_REACH_THE_CRM = ("fenced.writes", "fenced.app", "fenced.ports", "fenced.adapters.json_crm")
 PROMPT_NAMES = ("PROMPT", "SYSTEM", "INSTRUCTION")
-# Names that reach anything without an import statement to read.
-RUNTIME_DOORS = ("__import__", "eval", "exec", "compile")
+# Names that reach anything without an import statement to read. Four of them run a name
+# or a piece of text as code, `open` opens a file, and `input` and `breakpoint` reach
+# whoever is at the terminal.
+RUNTIME_DOORS = ("__import__", "eval", "exec", "compile", "open", "input", "breakpoint")
 
 SKIP_DIRS = {".git", "__pycache__", ".pytest_cache", ".venv", "build", "dist", ".fenced"}
 
@@ -119,8 +132,13 @@ def imported_names(root: Path, path: Path, tree: ast.AST) -> list[str]:
 def impure_imports(root: Path) -> list[str]:
     """Imports in domain and ports that leave the pure core or open a door outward.
 
-    A call to `__import__`, `eval`, `exec` or `compile` reaches anything without an
-    import statement, so those are refused by name as well.
+    A door is a name that answers from outside the arguments. Some of them reach outside
+    the process, such as a file or a socket. Some of them answer differently on the same
+    call, such as a clock or a source of randomness. Both kinds are refused, because a
+    rule that reads either one stops being a rule a test can pin.
+
+    A name in `RUNTIME_DOORS` reaches without an import statement to read, so those are
+    refused by name as well.
     """
     found = []
     for package in PURE_PACKAGES:
@@ -136,6 +154,10 @@ def impure_imports(root: Path) -> list[str]:
                 parts = name.split(".")
                 if parts[0] in DOORS_TO_THE_OUTSIDE:
                     found.append(f"{where} imports {name}, which reaches outside")
+                elif parts[0] in SOURCES_OUTSIDE_THE_ARGUMENTS:
+                    found.append(
+                        f"{where} imports {name}, which answers from outside the arguments"
+                    )
                 elif parts[0] == "fenced":
                     if parts[1:2] and parts[1] not in PURE_PACKAGES:
                         found.append(f"{where} imports {name}, which is not pure")
@@ -393,6 +415,69 @@ def test_the_import_fence_rejects_reaching_anything_without_an_import(tmp_path):
         "src/fenced/domain/lead.py:5 calls eval",
         "src/fenced/domain/lead.py imports builtins, which reaches outside",
     ]
+
+
+def test_the_import_fence_rejects_a_bare_open_in_both_pure_packages(tmp_path):
+    for package in PURE_PACKAGES:
+        planted = tmp_path / "src" / "fenced" / package
+        planted.mkdir(parents=True)
+        planted.joinpath("reader.py").write_text(
+            "def read(path):\n    return open(path).read()\n", encoding="utf-8"
+        )
+        assert impure_imports(tmp_path) == [
+            f"src/fenced/{package}/reader.py:2 calls open"
+        ]
+        planted.joinpath("reader.py").unlink()
+
+
+def test_the_import_fence_rejects_a_clock_and_a_source_of_randomness(tmp_path):
+    planted = tmp_path / "src" / "fenced" / "domain"
+    planted.mkdir(parents=True)
+    planted.joinpath("recency.py").write_text(
+        "import datetime\nimport random\nfrom ctypes import CDLL\n", encoding="utf-8"
+    )
+    assert impure_imports(tmp_path) == [
+        "src/fenced/domain/recency.py imports datetime, which answers from outside the arguments",
+        "src/fenced/domain/recency.py imports random, which answers from outside the arguments",
+        "src/fenced/domain/recency.py imports ctypes.CDLL, which reaches outside",
+    ]
+
+
+def test_the_import_fence_rejects_every_module_it_calls_a_door(tmp_path):
+    planted = tmp_path / "src" / "fenced" / "domain"
+    planted.mkdir(parents=True)
+    reasons = {name: "reaches outside" for name in DOORS_TO_THE_OUTSIDE}
+    reasons |= {
+        name: "answers from outside the arguments" for name in SOURCES_OUTSIDE_THE_ARGUMENTS
+    }
+    for name, reason in sorted(reasons.items()):
+        planted.joinpath("lead.py").write_text(f"import {name}\n", encoding="utf-8")
+        assert impure_imports(tmp_path) == [
+            f"src/fenced/domain/lead.py imports {name}, which {reason}"
+        ], f"{name} slipped through"
+
+
+def test_the_import_fence_rejects_every_name_it_calls_a_runtime_door(tmp_path):
+    planted = tmp_path / "src" / "fenced" / "ports"
+    planted.mkdir(parents=True)
+    for name in RUNTIME_DOORS:
+        planted.joinpath("crm.py").write_text(
+            f"def reach(what):\n    return {name}(what)\n", encoding="utf-8"
+        )
+        assert impure_imports(tmp_path) == [
+            f"src/fenced/ports/crm.py:2 calls {name}"
+        ], f"{name} slipped through"
+
+
+def test_the_import_fence_still_admits_the_arithmetic_the_domain_is_made_of(tmp_path):
+    planted = tmp_path / "src" / "fenced" / "domain"
+    planted.mkdir(parents=True)
+    planted.joinpath("scoring.py").write_text(
+        "import re\nfrom collections.abc import Mapping\nfrom dataclasses import dataclass\n"
+        "from decimal import Decimal\nfrom enum import Enum\nfrom fractions import Fraction\n",
+        encoding="utf-8",
+    )
+    assert impure_imports(tmp_path) == []
 
 
 def test_a_package_whose_name_merely_starts_the_same_is_not_inside_it(tmp_path):
