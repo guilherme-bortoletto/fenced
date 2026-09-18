@@ -15,3 +15,4 @@ below fails the build, and so does a row below that points at a file that is not
 | [0004 The text gate reads a Python file as its docstrings and its comments](0004-the-text-gate-reads-a-python-file-as-its-docstrings-and-its-comments.md) | accepted |
 | [0005 A door is a name that answers from outside the arguments](0005-a-door-is-a-name-that-answers-from-outside-the-arguments.md) | accepted |
 | [0006 A pull request body is published once by a plain REST call and never edited](0006-a-pull-request-body-is-published-once-and-never-edited.md) | accepted |
+| [0007 A private term is read across the whitespace that hides it](0007-a-private-term-is-read-across-whitespace.md) | accepted |
