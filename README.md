@@ -44,9 +44,13 @@ nobody ever watched reject anything is decoration.
 2. `docs/adr/0001-architecture-rules-live-in-tests.md`. Why they are tests and not a config file.
 3. `scripts/gates.py`. The same rules on text, for the places a test cannot reach.
 4. `.github/workflows/ci.yml`. Python 3.12 and 3.13, actions pinned by commit.
+5. `src/fenced/domain/lead.py`. The first piece of the domain, and the boundary everything the
+   model returns has to cross.
+6. `docs/adr/0002-awareness-is-closed-and-the-boundary-refuses.md`. Why that boundary refuses
+   instead of coercing.
 
-The domain, the ports, the adapters, the write layer and the command line arrive with the issues
-that build them, and each one gets its line here.
+The rest of the domain, the ports, the adapters, the write layer and the command line arrive with
+the issues that build them, and each one gets its line here.
 
 ## Run it
 
