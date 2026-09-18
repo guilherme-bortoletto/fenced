@@ -27,7 +27,9 @@ No sales slogan, in a name, a comment or a heading. Write what the code does. It
 
 ## Before every commit
 
-`python scripts/gates.py` runs the fences and the text rules, and a hook runs it again on its own. When a gate fails, fix the cause. Never work around a gate and never soften a fence to get a commit through. A fence that is actually wrong is an ADR and a pull request of its own.
+`python scripts/gates.py` runs the whole suite and the text rules. The hook in `.claude/settings.json` runs it again before every commit and every push a shell tool makes here. On the machine that writes the code there is a `pre-commit` hook in the clone that runs it as well, which is where the private term list is checked too.
+
+When a gate fails, fix the cause. Never work around a gate and never soften a fence to get a commit through. A fence that is actually wrong is an ADR and a pull request of its own. A fence that simply misses a case is a bug, and closing it is ordinary work with a test that plants the case.
 
 Not every machine has a working `python3`. The gate hook tries it first and falls back to `python`.
 
@@ -49,6 +51,8 @@ Title is the title of the issue. The body has these sections and no others:
 A small ambiguity is decided and listed under Decisions I made. A real blocker gets the `stuck` label, a comment on the issue, and the run stops there.
 
 Write to GitHub through `gh api repos/{owner}/{repo}/...`, because GraphQL may be refused.
+
+The body of an issue and the body of a pull request are public text that no commit hook sees. Run `python scripts/gates.py --text <file>` over each one before it is published.
 
 ## Never
 

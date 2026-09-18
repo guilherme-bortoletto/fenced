@@ -1,10 +1,10 @@
 """Gates that run before a commit and before any text leaves this repository.
 
-The six fences live in tests and run through pytest. The text rules live here,
-because they also have to run on something that is not a file in this tree, such
-as the body of an issue or the prompt of a scheduled run.
+The six fences live in tests and run with the rest of the suite through pytest.
+The text rules live here, because they also have to run on something that is not
+a file in this tree, such as the body of an issue or the prompt of a scheduled run.
 
-    python scripts/gates.py                    fences and text rules over the whole tree
+    python scripts/gates.py                    the whole suite and the text rules over the tree
     python scripts/gates.py --text             text rules over every tracked text file
     python scripts/gates.py --text FILE        text rules over one file
     python scripts/gates.py --hook             read a PreToolUse payload on stdin
@@ -34,9 +34,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 TEXT_RULES = (
-    ("a dash used as punctuation", r"[—–]"),
+    ("a long dash", r"[\u2014\u2013]"),
+    ("a hyphen as punctuation", r"\s-\s"),
     ("a semicolon", r";"),
 )
+SHELLS = ("Bash", "PowerShell")
 TEXT_SUFFIXES = (".md", ".py")
 SKIP_DIRS = {".git", "__pycache__", ".pytest_cache", ".venv", "build", "dist", ".fenced"}
 
@@ -90,6 +92,8 @@ def markdown_prose(text: str) -> list[tuple[int, str]]:
         line = re.sub(r"`[^`]*`", "", line)
         line = re.sub(r"\]\([^)]*\)", "]", line)
         line = re.sub(r"<[^>]*>", "", line)
+        # A list marker is a bullet and not punctuation, so it leaves before the rules run.
+        line = re.sub(r"^\s*[-*+]\s+", "", line)
         prose.append((number, line))
     return prose
 
@@ -157,12 +161,16 @@ def check_text(paths: list[Path], terms: list[str], root: Path) -> list[str]:
     return found
 
 
-def check_fences(root: Path) -> list[str]:
-    """The six fences, through pytest, failing closed when pytest is not there."""
+def check_tests(root: Path) -> list[str]:
+    """The whole suite, through pytest, failing closed when pytest is not there.
+
+    The fences are part of the suite and not the whole of it. A gate that ran only
+    the fence file would let a broken test in any other file reach a commit.
+    """
     if importlib.util.find_spec("pytest") is None:
-        return ["pytest is not installed, so the fences did not run"]
+        return ["pytest is not installed, so the tests did not run"]
     done = subprocess.run(
-        [sys.executable, "-m", "pytest", "tests/test_fences.py", "-q"],
+        [sys.executable, "-m", "pytest", "-q"],
         cwd=str(root),
         capture_output=True,
         text=True,
@@ -170,7 +178,7 @@ def check_fences(root: Path) -> list[str]:
     if done.returncode == 0:
         return []
     report = (done.stdout + done.stderr).strip().splitlines()
-    return ["the fences did not pass"] + report[-40:]
+    return ["the tests did not pass"] + report[-40:]
 
 
 def load_terms(path: str | None) -> list[str]:
@@ -193,12 +201,12 @@ def run_hook(terms_file: str | None, root: Path) -> int:
     except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
         sys.stderr.write("gates: no readable payload on stdin, so the commit is blocked\n")
         return 2
-    if payload.get("tool_name") != "Bash":
+    if payload.get("tool_name") not in SHELLS:
         return 0
     command = (payload.get("tool_input") or {}).get("command", "")
     if not GUARDED.search(command):
         return 0
-    found = check_fences(root) + check_text([], load_terms(terms_file), root)
+    found = check_tests(root) + check_text([], load_terms(terms_file), root)
     if ATTRIBUTION.search(" ".join(MESSAGE.findall(command))):
         found.append("this message carries attribution, which this repository never uses")
     if not found:
@@ -230,7 +238,7 @@ def main(argv: list[str]) -> int:
     if args.text is not None:
         found = check_text([Path(p) for p in args.text], terms, ROOT)
     else:
-        found = check_fences(ROOT) + check_text([], terms, ROOT)
+        found = check_tests(ROOT) + check_text([], terms, ROOT)
 
     if found:
         sys.stderr.write("\n".join(found) + "\n")

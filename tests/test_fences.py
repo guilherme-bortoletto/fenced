@@ -26,7 +26,7 @@ PURE_PACKAGES = ("domain", "ports")
 DOORS_TO_THE_OUTSIDE = {
     "socket", "ssl", "http", "urllib", "ftplib", "smtplib", "poplib", "imaplib",
     "subprocess", "webbrowser", "xmlrpc", "sqlite3", "shutil", "tempfile",
-    "os", "io", "pathlib", "pickle", "shelve", "dbm",
+    "os", "io", "pathlib", "pickle", "shelve", "dbm", "importlib",
 }
 NETWORK_NAMES = ("openai", "anthropic", "gemini", "httpx", "requests")
 LLM_ADAPTER = Path("src/fenced/adapters/llm_extractor.py")
@@ -79,15 +79,24 @@ def module_parts(root: Path, path: Path) -> list[str]:
     return parts[:-1] if parts and parts[-1] == "__init__" else parts
 
 
+def package_parts(root: Path, path: Path) -> list[str]:
+    """The package a relative import in this file counts from.
+
+    A package init counts from the package itself and a module counts from the
+    package that holds it, and both of those are the path without its last part.
+    """
+    return list(path.relative_to(root / "src").with_suffix("").parts)[:-1]
+
+
 def imported_names(root: Path, path: Path, tree: ast.AST) -> list[str]:
     """Everything this file imports, with relative imports resolved to full names."""
-    here = module_parts(root, path)
+    here = package_parts(root, path)
     names = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             names += [alias.name for alias in node.names]
         elif isinstance(node, ast.ImportFrom):
-            base = here[: len(here) - node.level] if node.level else []
+            base = here[: max(0, len(here) - node.level + 1)] if node.level else []
             tail = (node.module or "").split(".") if node.module else []
             full = ".".join(base + tail)
             names += [f"{full}.{alias.name}" for alias in node.names]
@@ -98,12 +107,21 @@ def imported_names(root: Path, path: Path, tree: ast.AST) -> list[str]:
 
 
 def impure_imports(root: Path) -> list[str]:
-    """Imports in domain and ports that leave the pure core or open a door outward."""
+    """Imports in domain and ports that leave the pure core or open a door outward.
+
+    A call to `__import__` is an import written so that the import statement check
+    cannot see it, so it is refused by name.
+    """
     found = []
     for package in PURE_PACKAGES:
         for path in python_files(root / "src" / "fenced" / package):
             tree = ast.parse(path.read_text(encoding="utf-8"))
             where = path.relative_to(root).as_posix()
+            for node in ast.walk(tree):
+                called = getattr(node, "func", None)
+                if isinstance(node, ast.Call) and isinstance(called, ast.Name):
+                    if called.id == "__import__":
+                        found.append(f"{where}:{node.lineno} calls __import__")
             for name in imported_names(root, path, tree):
                 parts = name.split(".")
                 if parts[0] in DOORS_TO_THE_OUTSIDE:
@@ -330,6 +348,28 @@ def test_the_import_fence_rejects_a_relative_escape_and_a_standard_library_door(
     assert impure_imports(tmp_path) == [
         "src/fenced/domain/lead.py imports socket, which reaches outside",
         "src/fenced/domain/lead.py imports fenced.adapters.json_crm.JsonCrm, which is not pure",
+    ]
+
+
+def test_the_import_fence_reads_a_relative_import_in_a_package_init(tmp_path):
+    package = tmp_path / "src" / "fenced" / "domain"
+    package.mkdir(parents=True)
+    package.joinpath("__init__.py").write_text(
+        "from . import lead\nfrom .lead import Lead\n", encoding="utf-8"
+    )
+    package.joinpath("lead.py").write_text("Lead = object\n", encoding="utf-8")
+    assert impure_imports(tmp_path) == []
+
+
+def test_the_import_fence_rejects_an_import_written_so_it_cannot_be_seen(tmp_path):
+    planted = tmp_path / "src" / "fenced" / "ports"
+    planted.mkdir(parents=True)
+    planted.joinpath("crm.py").write_text(
+        "import importlib\n\n\ndef reach():\n    return __import__('socket')\n", encoding="utf-8"
+    )
+    assert impure_imports(tmp_path) == [
+        "src/fenced/ports/crm.py:5 calls __import__",
+        "src/fenced/ports/crm.py imports importlib, which reaches outside",
     ]
 
 
