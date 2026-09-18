@@ -51,14 +51,27 @@ SKIP_DIRS = {".git", "__pycache__", ".pytest_cache", ".venv", "build", "dist", "
 # The boundary is asymmetric on purpose. A hyphen after the verb means a path such as
 # .git/hooks/commit-msg, which commits nothing. A hyphen before it means a flag, --push.
 VERBS = "commit|push|merge|revert|cherry-pick|rebase|am"
-GUARDED = re.compile(
-    rf"(?<![\w\-])g(?:it|h)(?![\w\-])[^;&|]*(?<!\w)(?:{VERBS})(?![\w\-])"
-)
-MESSAGE = re.compile(r"-{1,2}m(?:essage)?[=\s]+('[^']*'|\"[^\"]*\"|\S+)")
+# The verbs that write a commit. A push only moves commits that already carry an author.
+AUTHORING_VERBS = "commit|merge|revert|cherry-pick|rebase|am"
+REACHES_OUT = r"(?<![\w\-])g(?:it|h)(?![\w\-])[^;&|]*"
+GUARDED = re.compile(rf"{REACHES_OUT}(?<!\w)(?:{VERBS})(?![\w\-])")
+AUTHORING = re.compile(rf"{REACHES_OUT}(?<!\w)(?:{AUTHORING_VERBS})(?![\w\-])")
+# One word of a command, with or without the quotes a shell would take off.
+WORD = r"('[^']*'|\"[^\"]*\"|\S+)"
+MESSAGE = re.compile(rf"-{{1,2}}m(?:essage)?[=\s]+{WORD}")
 ATTRIBUTION = re.compile(
     r"co-authored-by:\s*claude|generated with .{0,4}claude|claude\.ai/|claude\.com/claude-code",
     re.IGNORECASE,
 )
+
+# Every commit on main is authored by a GitHub noreply address. A pull request ref keeps
+# its commits after a squash and after the branch is deleted, so a personal address that
+# reaches a branch once stays reachable for good.
+NOREPLY = re.compile(r"^[^@\s]+@users\.noreply\.github\.com$", re.IGNORECASE)
+INLINE_EMAIL = re.compile(rf"-c\s+(?:user|author|committer)\.email\s*=\s*{WORD}")
+ENV_EMAIL = re.compile(rf"(?<![\w.\-])(GIT_AUTHOR_EMAIL|GIT_COMMITTER_EMAIL)=\s*{WORD}")
+AUTHOR_FLAG = re.compile(rf"--author[=\s]+{WORD}")
+CONFIG_TIMEOUT = 20
 
 
 def tracked(root: Path) -> list[Path]:
@@ -211,6 +224,71 @@ def load_terms(path: str | None) -> list[str]:
     return [line.strip() for line in lines if line.strip() and not line.lstrip().startswith("#")]
 
 
+def shell_word(value: str) -> str:
+    """One word of a command with the quotes a shell would take off taken off."""
+    value = value.strip()
+    if len(value) > 1 and value[0] == value[-1] and value[0] in "'\"":
+        value = value[1:-1]
+    return value.strip()
+
+
+def address_of(value: str) -> str:
+    """The address in `A Name <address>`, or the word itself when there are no angles."""
+    inside = re.search(r"<([^>]*)>", value)
+    return (inside.group(1) if inside else value).strip()
+
+
+def configured_address(root: Path) -> tuple[str, str]:
+    """The address this clone commits with, and a line saying why it could not be read."""
+    try:
+        done = subprocess.run(
+            ["git", "-C", str(root), "config", "--get", "user.email"],
+            capture_output=True,
+            text=True,
+            timeout=CONFIG_TIMEOUT,
+        )
+    except (OSError, subprocess.SubprocessError) as broken:
+        return "", f"git could not say which address this clone commits with, {broken}"
+    address = done.stdout.strip()
+    if not address:
+        return "", "this clone has no user.email, so who a commit would be from cannot be read"
+    return address, ""
+
+
+def identity_problems(command: str, root: Path) -> list[str]:
+    """Addresses a commit command would write that are not a GitHub noreply address.
+
+    An address reaches a commit four ways. Inline with `git -c user.email=`, through
+    GIT_AUTHOR_EMAIL or GIT_COMMITTER_EMAIL, behind `--author`, and from the
+    configuration of the clone. The configured one is read unless the command replaces
+    it for the author and for the committer both, because otherwise it is still the one
+    that lands on half of the commit.
+    """
+    if not AUTHORING.search(command):
+        return []
+    addresses = [shell_word(value) for value in INLINE_EMAIL.findall(command)]
+    passed = {name: shell_word(value) for name, value in ENV_EMAIL.findall(command)}
+    for name in ("GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL"):
+        if not passed.get(name) and os.environ.get(name):
+            passed[name] = os.environ[name].strip()
+    replaced = bool(addresses) or all(
+        passed.get(name) for name in ("GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL")
+    )
+    addresses += [value for value in passed.values() if value]
+    addresses += [address_of(shell_word(value)) for value in AUTHOR_FLAG.findall(command)]
+    found = []
+    if not replaced:
+        configured, unread = configured_address(root)
+        if unread:
+            found.append(unread)
+        else:
+            addresses.append(configured)
+    for address in dict.fromkeys(addresses):
+        if not NOREPLY.match(address):
+            found.append(f"{address} is not a GitHub noreply address, and a commit keeps it")
+    return found
+
+
 def run_hook(terms_file: str | None, root: Path) -> int:
     """Block the commit when anything is wrong, and block it when the check breaks."""
     try:
@@ -224,6 +302,7 @@ def run_hook(terms_file: str | None, root: Path) -> int:
     if not GUARDED.search(command):
         return 0
     found = check_tests(root) + check_text([], load_terms(terms_file), root)
+    found += identity_problems(command, root)
     if ATTRIBUTION.search(" ".join(MESSAGE.findall(command))):
         found.append("this message carries attribution, which this repository never uses")
     if not found:
