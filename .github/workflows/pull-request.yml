@@ -26,6 +26,16 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      # The text comes from the branch and the rules come from main. The checkout above is
+      # the pushed branch, and a branch says what its pull request says. It does not say
+      # what the gate refuses or what the publisher is allowed to do. A branch that edited
+      # either script would be editing the rules this job runs while the job holds write on
+      # pull requests, so both are read from main. This checkout is second because the one
+      # above cleans the workspace it lands in.
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: refs/heads/main
+          path: rules-from-main
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.13"
@@ -40,7 +50,10 @@ jobs:
           fi
       - name: text rules
         if: steps.files.outputs.ready == 'yes'
-        run: python scripts/gates.py --text .github/pull-request/title.md .github/pull-request/body.md
+        run: |
+          python rules-from-main/scripts/gates.py --text \
+            .github/pull-request/title.md \
+            .github/pull-request/body.md
       - name: publish
         if: steps.files.outputs.ready == 'yes'
         # The branch name reaches the shell through the environment and never through
@@ -51,7 +64,7 @@ jobs:
           REPO: ${{ github.event.repository.name }}
           BRANCH: ${{ github.ref_name }}
         run: |
-          python scripts/publish.py \
+          python rules-from-main/scripts/publish.py \
             --owner "$OWNER" \
             --repo "$REPO" \
             --head "$BRANCH" \

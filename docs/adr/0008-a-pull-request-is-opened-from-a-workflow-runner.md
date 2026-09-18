@@ -37,6 +37,15 @@ calls `scripts/publish.py` from the runner, which is on the other side of the pa
 The publisher reads the pull request back and runs the gate again over the stored body, as it
 did before.
 
+The text comes from the branch and the rules come from `main`. The job checks the pushed branch
+out, checks `main` out into `rules-from-main`, and runs `main`'s gate and `main`'s publisher over
+the two files the branch carries. A branch says what its pull request says. It does not say what
+the gate refuses, and it does not say what the publisher is allowed to do. This record says the
+publisher has no route that changes a body, and a test reads the source to keep it that way. On a
+branch, the script and the test that guards it are both whatever the branch says, and the job that
+runs them holds write on pull requests. The checkout of the branch comes first, because a checkout
+at the root of the workspace cleans what is already in it.
+
 The publisher asks GitHub first whether the branch already has a pull request, and publishes
 nothing when it has one. A branch is pushed many times in one run and the workflow runs on each
 push. The push that carries the two files opens the pull request. Every push after it does
@@ -75,6 +84,14 @@ Record 0006 keeps its status. What it decided stands, which is one route out, a 
 sides of the call, and no edit ever. This record says which machine makes the call and why the
 reason written in that one was wrong.
 
-Four tests plant the new cases. A branch with a pull request already on it, a branch whose pull
+What this does not cover. A push event runs the workflow file from the branch that was
+pushed, so the branch still says whether this job runs and what steps it has. Reading the two
+scripts from `main` keeps the rules of the publish that this workflow performs out of the reach of
+the branch being published. It is not a fence against a branch written to defeat it, and a branch
+is written here by a run this repository starts.
+
+Seven tests plant the new cases. A branch with a pull request already on it, a branch whose pull
 request is closed, the listing the publisher asks for read back as a query, and an answer that is
-not a listing at all.
+not a listing at all. Then the workflow itself, read as text. That it runs the gate and the
+publisher from the checkout of `main`, that a copy run from the branch is refused, and that a
+workflow which never checks `main` out is refused.

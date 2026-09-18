@@ -12,6 +12,7 @@ The transport is a fake that records the calls, so nothing in this file reaches 
 from __future__ import annotations
 
 import importlib.util
+import re
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -227,3 +228,45 @@ def test_there_is_no_route_in_here_that_changes_a_body_that_already_exists():
     source = (ROOT / "scripts" / "publish.py").read_text(encoding="utf-8")
     for method in ("PATCH", "PUT"):
         assert method not in source
+
+
+# The workflow that makes the call. The text comes from the branch and the rules come from
+# main, so a branch that edited the gate or the publisher edits neither.
+
+WORKFLOW = ROOT / ".github" / "workflows" / "pull-request.yml"
+RULES_PATH = "rules-from-main"
+SCRIPT_CALL = re.compile(r"(?<![\w/-])(\S*)scripts/(gates|publish)\.py")
+
+
+def rules_from_the_branch(text: str) -> list[str]:
+    """Every line of the workflow that would run the branch's own gate or publisher.
+
+    A comment is prose and runs nothing, so it is read past. What is left is the commands,
+    and each one has to name the checkout of main that the rules are read from.
+    """
+    found = []
+    if f"path: {RULES_PATH}" not in text or "ref: refs/heads/main" not in text:
+        found.append("the workflow does not check main out into a path of its own")
+    for number, line in enumerate(text.splitlines(), start=1):
+        if line.lstrip().startswith("#"):
+            continue
+        for prefix, script in SCRIPT_CALL.findall(line):
+            if prefix != f"{RULES_PATH}/":
+                found.append(f"line {number} runs scripts/{script}.py from the branch")
+    return found
+
+
+def test_the_workflow_runs_the_gate_and_the_publisher_from_main():
+    assert rules_from_the_branch(WORKFLOW.read_text(encoding="utf-8")) == []
+
+
+def test_a_workflow_that_runs_the_publisher_from_the_branch_is_refused():
+    planted = WORKFLOW.read_text(encoding="utf-8").replace(
+        f"{RULES_PATH}/scripts/publish.py", "scripts/publish.py"
+    )
+    assert [line for line in rules_from_the_branch(planted) if "publish.py" in line]
+
+
+def test_a_workflow_that_never_checks_main_out_is_refused():
+    planted = WORKFLOW.read_text(encoding="utf-8").replace(f"path: {RULES_PATH}", "path: rules")
+    assert "does not check main out" in "\n".join(rules_from_the_branch(planted))
