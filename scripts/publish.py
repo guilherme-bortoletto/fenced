@@ -1,0 +1,175 @@
+"""Publish a pull request body to GitHub through a plain REST call.
+
+A body is public text. It leaves this machine once, exactly as it was written, and it
+is never edited afterwards. Editing is what writes the version before the edit into the
+history of the body, where it stays for good, so a line appended by a publishing tool
+and then removed is a line this repository published and kept.
+
+This script is the one way out. It reads the title and the body from files, runs the
+text gate over both, and posts them with `urllib.request`. Nothing sits between the
+file and the wire, so nothing can append to it.
+
+    python scripts/publish.py --owner OWNER --repo REPO --head BRANCH --base main \
+        --title-file TITLE --body-file BODY
+
+The token arrives in GITHUB_TOKEN or in GH_TOKEN and is never written down here.
+
+After the call the script reads the pull request back and compares it to what it sent.
+That read is a check and not a repair. When the two disagree it says so and stops, and
+the body on GitHub stays as it is, because an edit would be the second version this is
+here to prevent.
+
+There is no route in here that changes a body that already exists. That absence is the
+point of the file.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import gates  # noqa: E402  the gate lives next to this file, and scripts is not a package
+
+API = "https://api.github.com"
+TOKEN_NAMES = ("GITHUB_TOKEN", "GH_TOKEN")
+TIMEOUT = 30
+API_VERSION = "2022-11-28"
+AGENT = "fenced"
+
+
+class Refused(Exception):
+    """Something was wrong, so nothing was published, or what was published is not right."""
+
+
+def token() -> str:
+    """The token this call authenticates with, from the environment and nowhere else."""
+    for name in TOKEN_NAMES:
+        value = os.environ.get(name, "").strip()
+        if value:
+            return value
+    raise Refused("no token in the environment, so nothing was published")
+
+
+def send(method: str, url: str, payload: dict | None, key: str) -> dict:
+    """One REST call, returning the answer as a dictionary."""
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    request = urllib.request.Request(
+        url,
+        data=data,
+        method=method,
+        headers={
+            "Authorization": f"Bearer {key}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": API_VERSION,
+            "User-Agent": AGENT,
+            "Content-Type": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=TIMEOUT) as answer:
+            return json.loads(answer.read().decode("utf-8"))
+    except urllib.error.HTTPError as refused:
+        detail = refused.read().decode("utf-8", errors="replace").strip()
+        raise Refused(f"{method} {url} answered {refused.code}, {detail[:400]}") from refused
+    except (urllib.error.URLError, OSError, ValueError) as broken:
+        raise Refused(f"{method} {url} did not complete, {broken}") from broken
+
+
+def read_one(path: Path) -> str:
+    """The text of one file, refusing rather than guessing when it cannot be read."""
+    try:
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as unreadable:
+        raise Refused(f"{path} could not be read, {unreadable}")
+
+
+def gate(name: str, text: str, terms: list[str]) -> None:
+    """The text rules over one piece of text, raising with every line that broke one."""
+    found = gates.text_problems(name, text, terms)
+    if found:
+        raise Refused("\n".join(found))
+
+
+def as_sent(text: str) -> str:
+    """A body with the line endings GitHub stores it with folded back, for comparing."""
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def publish(
+    owner: str,
+    repo: str,
+    head: str,
+    base: str,
+    title: str,
+    body: str,
+    terms: list[str],
+    transport=send,
+) -> dict:
+    """Create the pull request, then read it back and check it word for word.
+
+    The gate runs before the call, because text that breaks a rule must not reach
+    GitHub at all. It runs again on what came back, because the only thing that
+    proves nothing was appended is the stored body itself.
+    """
+    gate("the title", title, terms)
+    gate("the body", body, terms)
+    key = token()
+    made = transport(
+        "POST",
+        f"{API}/repos/{owner}/{repo}/pulls",
+        {"title": title, "head": head, "base": base, "body": body},
+        key,
+    )
+    number = made.get("number")
+    if not number:
+        raise Refused(f"the answer carried no pull request number, {made}")
+    stored = transport("GET", f"{API}/repos/{owner}/{repo}/pulls/{number}", None, key)
+    kept = as_sent(stored.get("body") or "")
+    gate(f"pull request {number} as it stands", kept, terms)
+    if kept != as_sent(body):
+        raise Refused(
+            f"pull request {number} does not hold the body that was sent, and it was left "
+            f"as it is, because an edit is what records the difference for good"
+        )
+    return {"number": number, "url": made.get("html_url", "")}
+
+
+def main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(description="Publish a pull request body as it stands.")
+    parser.add_argument("--owner", required=True)
+    parser.add_argument("--repo", required=True)
+    parser.add_argument("--head", required=True, help="the branch the changes are on")
+    parser.add_argument("--base", default="main")
+    parser.add_argument("--title-file", required=True, metavar="FILE")
+    parser.add_argument("--body-file", required=True, metavar="FILE")
+    parser.add_argument("--terms-file", metavar="PATH", help="a private list of terms to refuse")
+    args = parser.parse_args(argv)
+
+    try:
+        terms = gates.load_terms(args.terms_file)
+        title = read_one(Path(args.title_file)).strip()
+        body = read_one(Path(args.body_file))
+        if not title:
+            raise Refused("the title file is empty")
+        opened = publish(
+            args.owner, args.repo, args.head, args.base, title, body, terms
+        )
+    except Refused as refused:
+        sys.stderr.write(f"publish: refused\n{refused}\n")
+        return 1
+    except Exception as broken:
+        sys.stderr.write(f"publish: the call itself broke, so nothing is assumed, {broken}\n")
+        return 1
+    print(f"publish: pull request {opened['number']} {opened['url']}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

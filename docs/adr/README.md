@@ -14,3 +14,4 @@ below fails the build, and so does a row below that points at a file that is not
 | [0003 A score is decimal arithmetic over three bounded dimensions](0003-a-score-is-decimal-arithmetic-over-three-dimensions.md) | accepted |
 | [0004 The text gate reads a Python file as its docstrings and its comments](0004-the-text-gate-reads-a-python-file-as-its-docstrings-and-its-comments.md) | accepted |
 | [0005 A door is a name that answers from outside the arguments](0005-a-door-is-a-name-that-answers-from-outside-the-arguments.md) | accepted |
+| [0006 A pull request body is published once by a plain REST call and never edited](0006-a-pull-request-body-is-published-once-and-never-edited.md) | accepted |
