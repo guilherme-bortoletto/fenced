@@ -40,11 +40,11 @@ the fence, and a test reads the source and refuses the words that would start on
 The token arrives in `GITHUB_TOKEN` or in `GH_TOKEN`. No key is written down in this tree.
 
 Three other shapes were considered and rejected. Keeping the appending tool and editing faster,
-which changes nothing, because one edit is one recorded version whenever it happens. Publishing an
-empty body and filling it in afterwards, which records an empty first version and still needs the
-edit. Turning attribution off in the settings of the tool that appends it, which is a setting on one
-machine, and a rule this repository keeps cannot live somewhere a stranger reading the tree cannot
-see.
+which changes nothing, because one edit is one recorded version whenever it happens. Publishing a
+body with no text in it and filling it in later, which records a first version with nothing in it
+and still needs the edit. Turning attribution off in the settings of the tool that appends it,
+which is a setting on one machine, and a rule this repository keeps cannot live somewhere a
+stranger reading the tree cannot see.
 
 ## Consequences
 
