@@ -53,6 +53,14 @@ dimension takes.
 and `compile` were already there. `open`, `input` and `breakpoint` join them, because a file and a
 terminal are doors whether or not a module was imported first.
 
+The fence reads a name and not an expression. It refuses a call whose function is a name, so
+`eval("1")` is caught and `__builtins__["open"]("s")` is not, because the second one is a call on a
+subscript. That is the same door reached one step sideways. Reading the expression instead would
+mean deciding what an arbitrary piece of syntax resolves to, which is the tracing a written list
+exists to avoid, and the shapes it would have to cover have no end a reader could check. So the
+hole is written down here rather than closed. A line like that stands out in a diff, and this
+record is what a reviewer points at when one appears.
+
 All three lists are written by name, for three reasons. A fence that decided by behaviour would have
 to import the module and watch it, which means running the code the fence is there to refuse. A name
 is what a reader of the diff sees, so the list can be argued with in review instead of traced
@@ -82,6 +90,12 @@ Nothing in the tree had to move. `lead.py` and `scoring.py` import `re`, `collec
 
 `sys` is on the list, so a domain module cannot write to a stream of the process or read its
 arguments. A domain module that wants to say something returns it.
+
+`pkgutil`, `zipimport` and `modulefinder` import a module by name, which is what `importlib` and
+`runpy` already did, so they are on the list as well. `sysconfig` and `site` read the install
+layout off disk, which is the first kind of door. A list that is incomplete is the price named
+above. A list that refuses one name and passes another doing the same thing is a bug, and it is
+closed by name like any other.
 
 A planted violation test covers every name on all three lists, one planted file per name, and
 asserts the exact line the fence reports. The two tests that walk the module lists read the
