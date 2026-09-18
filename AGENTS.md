@@ -29,6 +29,8 @@ No sales slogan, in a name, a comment or a heading. Write what the code does. It
 
 `python scripts/gates.py` runs the whole suite and the text rules. The hook in `.claude/settings.json` runs it again whenever a shell tool here reaches for `commit`, `push`, `merge`, `revert`, `cherry-pick`, `rebase` or `am`. On the machine that writes the code there is a `pre-commit` hook in the clone that runs it as well, which is where the private term list is checked too.
 
+Every commit carries a GitHub noreply address. The gate refuses any other author or committer address, including one passed inline with `git -c user.email=`.
+
 When a gate fails, fix the cause. Never work around a gate and never soften a fence to get a commit through. A fence that is actually wrong is an ADR and a pull request of its own. A fence that simply misses a case is a bug, and closing it is ordinary work with a test that plants the case.
 
 Not every machine has a working `python3`. The gate hook tries it first and falls back to `python`.
