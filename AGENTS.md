@@ -54,9 +54,11 @@ Title is the title of the issue. The body has these sections and no others:
 
 A small ambiguity is decided and listed under Decisions I made. A real blocker gets the `stuck` label, a comment on the issue, and the run stops there.
 
-Write to GitHub through `gh api repos/{owner}/{repo}/...`, because GraphQL may be refused.
+Write to GitHub through the REST api, because GraphQL may be refused. On a machine that has `gh`, that is `gh api repos/{owner}/{repo}/...`.
 
-The body of an issue and the body of a pull request are public text that no commit hook sees. Run `python scripts/gates.py --text <file>` over each one before it is published, and over the body read back afterwards, because the line a publishing tool appends arrives after the gate has read the file.
+A pull request body is published by `python scripts/publish.py --owner O --repo R --head BRANCH --base main --title-file T --body-file B`, and by nothing else. A tool that publishes a body for an agent may append a line naming the agent and linking to its run. Reading the body back and editing that line out does not remove it, because the edit is what writes the version before it into the history of the body, and GitHub keeps that version for good. So the body is posted with a plain REST call that has nothing between the file and the wire. The publisher runs the text gate over the title and the body before the call, reads the pull request back, runs the gate again over the stored body, and refuses when the two disagree. It never edits what it published, and it has no route that changes a body that already exists. The decision is `docs/adr/0006-a-pull-request-body-is-published-once-and-never-edited.md`.
+
+The body of an issue is public text that no commit hook sees. Run `python scripts/gates.py --text <file>` over it before it is published.
 
 ## Never
 
