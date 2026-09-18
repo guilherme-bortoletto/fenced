@@ -26,7 +26,7 @@ PURE_PACKAGES = ("domain", "ports")
 DOORS_TO_THE_OUTSIDE = {
     "socket", "ssl", "http", "urllib", "ftplib", "smtplib", "poplib", "imaplib",
     "subprocess", "webbrowser", "xmlrpc", "sqlite3", "shutil", "tempfile",
-    "os", "io", "pathlib", "pickle", "shelve", "dbm", "importlib",
+    "os", "io", "pathlib", "pickle", "shelve", "dbm", "importlib", "builtins",
 }
 NETWORK_NAMES = ("openai", "anthropic", "gemini", "httpx", "requests")
 LLM_ADAPTER = Path("src/fenced/adapters/llm_extractor.py")
@@ -34,6 +34,8 @@ WRITE_CALLS = ("commit", "create_lead", "create_task")
 CRM_MODULES = ("fenced.ports.crm", "fenced.adapters.json_crm")
 MAY_REACH_THE_CRM = ("fenced.writes", "fenced.app", "fenced.ports", "fenced.adapters.json_crm")
 PROMPT_NAMES = ("PROMPT", "SYSTEM", "INSTRUCTION")
+# Names that reach anything without an import statement to read.
+RUNTIME_DOORS = ("__import__", "eval", "exec", "compile")
 
 SKIP_DIRS = {".git", "__pycache__", ".pytest_cache", ".venv", "build", "dist", ".fenced"}
 
@@ -73,6 +75,14 @@ def tracked_files(root: Path) -> list[Path]:
     )
 
 
+def _inside(name: str, packages: tuple[str, ...]) -> bool:
+    """Whether a dotted name is one of these packages or lives under one.
+
+    A plain prefix test would put `fenced.apple` inside `fenced.app`.
+    """
+    return any(name == package or name.startswith(package + ".") for package in packages)
+
+
 def module_parts(root: Path, path: Path) -> list[str]:
     """The dotted name of a file under src, as a list of parts."""
     parts = list(path.relative_to(root / "src").with_suffix("").parts)
@@ -109,8 +119,8 @@ def imported_names(root: Path, path: Path, tree: ast.AST) -> list[str]:
 def impure_imports(root: Path) -> list[str]:
     """Imports in domain and ports that leave the pure core or open a door outward.
 
-    A call to `__import__` is an import written so that the import statement check
-    cannot see it, so it is refused by name.
+    A call to `__import__`, `eval`, `exec` or `compile` reaches anything without an
+    import statement, so those are refused by name as well.
     """
     found = []
     for package in PURE_PACKAGES:
@@ -120,8 +130,8 @@ def impure_imports(root: Path) -> list[str]:
             for node in ast.walk(tree):
                 called = getattr(node, "func", None)
                 if isinstance(node, ast.Call) and isinstance(called, ast.Name):
-                    if called.id == "__import__":
-                        found.append(f"{where}:{node.lineno} calls __import__")
+                    if called.id in RUNTIME_DOORS:
+                        found.append(f"{where}:{node.lineno} calls {called.id}")
             for name in imported_names(root, path, tree):
                 parts = name.split(".")
                 if parts[0] in DOORS_TO_THE_OUTSIDE:
@@ -188,9 +198,9 @@ def writes_outside_the_writes_package(root: Path) -> list[str]:
     for path in python_files(root / "src"):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         where = path.relative_to(root).as_posix()
-        if not ".".join(module_parts(root, path)).startswith(MAY_REACH_THE_CRM):
+        if not _inside(".".join(module_parts(root, path)), MAY_REACH_THE_CRM):
             for name in imported_names(root, path, tree):
-                if name.startswith(CRM_MODULES):
+                if _inside(name, CRM_MODULES):
                     found.append(f"{where} imports {name}")
         if guarded in path.parents:
             continue
@@ -370,6 +380,27 @@ def test_the_import_fence_rejects_an_import_written_so_it_cannot_be_seen(tmp_pat
     assert impure_imports(tmp_path) == [
         "src/fenced/ports/crm.py:5 calls __import__",
         "src/fenced/ports/crm.py imports importlib, which reaches outside",
+    ]
+
+
+def test_the_import_fence_rejects_reaching_anything_without_an_import(tmp_path):
+    planted = tmp_path / "src" / "fenced" / "domain"
+    planted.mkdir(parents=True)
+    planted.joinpath("lead.py").write_text(
+        "import builtins\n\n\ndef reach():\n    return eval('1')\n", encoding="utf-8"
+    )
+    assert impure_imports(tmp_path) == [
+        "src/fenced/domain/lead.py:5 calls eval",
+        "src/fenced/domain/lead.py imports builtins, which reaches outside",
+    ]
+
+
+def test_a_package_whose_name_merely_starts_the_same_is_not_inside_it(tmp_path):
+    planted = tmp_path / "src" / "fenced" / "apple"
+    planted.mkdir(parents=True)
+    planted.joinpath("core.py").write_text("from fenced.ports.crm import Crm\n", encoding="utf-8")
+    assert writes_outside_the_writes_package(tmp_path) == [
+        "src/fenced/apple/core.py imports fenced.ports.crm.Crm"
     ]
 
 

@@ -35,10 +35,14 @@ ROOT = Path(__file__).resolve().parent.parent
 
 TEXT_RULES = (
     ("a long dash", r"[\u2014\u2013]"),
-    ("a hyphen as punctuation", r"\s-\s"),
+    ("a hyphen as punctuation", r"(?:^|\s)-{1,2}(?:\s|$)"),
     ("a semicolon", r";"),
 )
 SHELLS = ("Bash", "PowerShell")
+TEST_TIMEOUT = 120
+# A bullet at the start of a line, and a line that is only rule characters.
+MARKER = re.compile(r"^\s*[-*+]\s+")
+RULE_ACROSS = re.compile(r"^[-*_:|\s]+$")
 TEXT_SUFFIXES = (".md", ".py")
 SKIP_DIRS = {".git", "__pycache__", ".pytest_cache", ".venv", "build", "dist", ".fenced"}
 
@@ -46,7 +50,10 @@ SKIP_DIRS = {".git", "__pycache__", ".pytest_cache", ".venv", "build", "dist", "
 # Both `git` and `gh`, because `gh repo create --push` leaves just as fast as `git push`.
 # The boundary is asymmetric on purpose. A hyphen after the verb means a path such as
 # .git/hooks/commit-msg, which commits nothing. A hyphen before it means a flag, --push.
-GUARDED = re.compile(r"(?<![\w\-])g(?:it|h)(?![\w\-])[^;&|]*(?<!\w)(commit|push)(?![\w\-])")
+VERBS = "commit|push|merge|revert|cherry-pick|rebase|am"
+GUARDED = re.compile(
+    rf"(?<![\w\-])g(?:it|h)(?![\w\-])[^;&|]*(?<!\w)(?:{VERBS})(?![\w\-])"
+)
 MESSAGE = re.compile(r"-{1,2}m(?:essage)?[=\s]+('[^']*'|\"[^\"]*\"|\S+)")
 ATTRIBUTION = re.compile(
     r"co-authored-by:\s*claude|generated with .{0,4}claude|claude\.ai/|claude\.com/claude-code",
@@ -92,8 +99,6 @@ def markdown_prose(text: str) -> list[tuple[int, str]]:
         line = re.sub(r"`[^`]*`", "", line)
         line = re.sub(r"\]\([^)]*\)", "]", line)
         line = re.sub(r"<[^>]*>", "", line)
-        # A list marker is a bullet and not punctuation, so it leaves before the rules run.
-        line = re.sub(r"^\s*[-*+]\s+", "", line)
         prose.append((number, line))
     return prose
 
@@ -132,6 +137,10 @@ def text_problems(name: str, text: str, terms: list[str]) -> list[str]:
         prose = markdown_prose(text)
     found = []
     for number, line in prose:
+        # A bullet and a rule across the page are marks, not punctuation.
+        if RULE_ACROSS.match(line.strip()):
+            continue
+        line = MARKER.sub("", line)
         for label, pattern in TEXT_RULES:
             if re.search(pattern, line):
                 found.append(f"{name}:{number} uses {label}")
@@ -169,12 +178,20 @@ def check_tests(root: Path) -> list[str]:
     """
     if importlib.util.find_spec("pytest") is None:
         return ["pytest is not installed, so the tests did not run"]
-    done = subprocess.run(
-        [sys.executable, "-m", "pytest", "-q"],
-        cwd=str(root),
-        capture_output=True,
-        text=True,
-    )
+    if any(p.name == "conftest.py" for p in tracked(root)):
+        return ["a conftest.py can narrow or rewrite the suite, so the gate refuses one"]
+    try:
+        done = subprocess.run(
+            [sys.executable, "-m", "pytest", "-q"],
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+            # PYTEST_ADDOPTS from the environment can deselect the very test that matters.
+            env={**os.environ, "PYTEST_ADDOPTS": ""},
+            timeout=TEST_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        return [f"the tests did not finish inside {TEST_TIMEOUT} seconds, so nothing is assumed"]
     if done.returncode == 0:
         return []
     report = (done.stdout + done.stderr).strip().splitlines()
