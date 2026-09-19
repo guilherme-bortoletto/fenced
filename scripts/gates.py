@@ -18,6 +18,10 @@ be, because naming what you are hiding in the place you are hiding it from is no
 a gate. Point at it from outside with --terms-file, or with FENCED_TERMS_FILE so
 that no path belonging to one machine is written down here.
 
+So the term rules run only where a list is. A clone that has none is the ordinary case
+and not a failure, and a run says which rules it ran and which it could not rather than
+calling itself clean over a rule that never ran at all.
+
 A term is read across the whitespace that hides it, so a term written over a line
 break and a term written with a space inside it are refused like the term itself.
 What that costs is docs/adr/0007-a-private-term-is-read-across-whitespace.md
@@ -52,6 +56,12 @@ TEST_TIMEOUT = 120
 MARKER = re.compile(r"^\s*[-*+]\s+")
 RULE_ACROSS = re.compile(r"^[-*_:|\s]+$")
 TEXT_SUFFIXES = (".md", ".py")
+# The rules a run can check, named so that a run can say which of them it did not.
+TESTS_RULE = "the tests"
+TEXT_RULE = "the text rules"
+TERM_RULE = "the term rules"
+NO_LIST = "no list of private terms was pointed at, by --terms-file or FENCED_TERMS_FILE"
+TEXT_ONLY = "--text asks for the text rules and nothing else"
 # What a run of whitespace becomes in the two views a term is read in besides the text as
 # it stands. One space carries a term of two words over a line break. Nothing at all carries
 # a term of one word over a line break and over a space written inside it.
@@ -385,7 +395,11 @@ def message_problems(command: str) -> list[str]:
 
 
 def run_hook(terms_file: str | None, root: Path) -> int:
-    """Block the commit when anything is wrong, and block it when the check breaks."""
+    """Block the commit when anything is wrong, and block it when the check breaks.
+
+    A hook that passes says nothing unless a rule did not run, which is the one thing the
+    commit going through cannot find out any other way.
+    """
     try:
         payload = json.load(sys.stdin)
     except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
@@ -396,12 +410,48 @@ def run_hook(terms_file: str | None, root: Path) -> int:
     command = (payload.get("tool_input") or {}).get("command", "")
     if not GUARDED.search(command):
         return 0
-    found = check_tests(root) + check_text([], load_terms(terms_file), root)
+    terms = load_terms(terms_file)
+    found = check_tests(root) + check_text([], terms, root)
     found += identity_problems(command, root) + message_problems(command)
+    ran, skipped = rules_run(True, terms)
+    said = accounting(ran, skipped)
     if not found:
+        if skipped:
+            sys.stderr.write("\n".join(said + [verdict(skipped)]) + "\n")
         return 0
-    sys.stderr.write("gates: blocked\n" + "\n".join(found) + "\n")
+    sys.stderr.write("\n".join(said + ["gates: blocked"] + found) + "\n")
     return 2
+
+
+def rules_run(tests: bool, terms: list[str]) -> tuple[list[str], list[tuple[str, str]]]:
+    """The rules a run checked, and the rules it could not with the reason for each.
+
+    A rule that did not run is not a failure. A clone holds no list of private terms,
+    because that list belongs to a machine, and --text asks for the text rules alone.
+    What a skipped rule must never be is silent, because a run that says clean over a
+    rule it never ran reads as a run where every rule passed.
+    """
+    ran = [TESTS_RULE] if tests else []
+    skipped = [] if tests else [(TESTS_RULE, TEXT_ONLY)]
+    ran.append(TEXT_RULE)
+    if terms:
+        ran.append(f"{TERM_RULE} over a list of {len(terms)}")
+    else:
+        skipped.append((TERM_RULE, NO_LIST))
+    return ran, skipped
+
+
+def accounting(ran: list[str], skipped: list[tuple[str, str]]) -> list[str]:
+    """What a run says it did, before it says whether it found anything."""
+    said = [f"gates: ran {', '.join(ran)}"]
+    return said + [f"gates: did not run {name}, because {why}" for name, why in skipped]
+
+
+def verdict(skipped: list[tuple[str, str]]) -> str:
+    """The word for a run that found nothing, which never covers a rule that did not run."""
+    if not skipped:
+        return "gates: clean"
+    return f"gates: clean apart from {', '.join(name for name, _ in skipped)}"
 
 
 def main(argv: list[str]) -> int:
@@ -426,13 +476,16 @@ def main(argv: list[str]) -> int:
 
     if args.text is not None:
         found = check_text([Path(p) for p in args.text], terms, ROOT)
+        ran, skipped = rules_run(False, terms)
     else:
         found = check_tests(ROOT) + check_text([], terms, ROOT)
+        ran, skipped = rules_run(True, terms)
 
+    print("\n".join(accounting(ran, skipped)))
     if found:
         sys.stderr.write("\n".join(found) + "\n")
         return 1
-    print("gates: clean")
+    print(verdict(skipped))
     return 0
 
 
