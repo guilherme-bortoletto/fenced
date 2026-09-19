@@ -68,4 +68,6 @@ That cannot be repaired from a run. `scripts/publish.py` publishes nothing when 
 
 So this file is the body pull request 30 should have carried, and it is here on the branch rather than on GitHub. A person decides what happens to 30.
 
+One more thing this run found. The comment it wrote on issue 25 was read by the text gate first and passed. The stored comment carries a line under a rule, naming the agent and linking to its run, which the run did not write. So the append record 0008 describes is not only on the route a pull request body takes. It is on an issue comment from the same machine too. The comment was left as it stands, because record 0006 is about exactly this and an edit would write the version before it into the history of the comment.
+
 The hole underneath is that the two files live on `main` and a branch inherits them, so the first push of every run publishes the previous run's text. It wants an issue of its own. What this run did not do is open that issue, change the workflow, or touch pull request 30 in any way.
