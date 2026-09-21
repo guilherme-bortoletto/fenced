@@ -27,11 +27,20 @@ the branch is fine and the pull request describing it belongs to another run.
 ## Decision
 
 The publisher reads one number twice. It reads `claude/issue-N` off the head branch it was given,
-and it reads `Closes #M` off the first line of the body. It refuses when N and M differ, and it
-refuses before it asks GitHub anything, so a refusal leaves no call behind.
+and it reads `Closes #M` off the first line of the body. It reads both before it asks GitHub
+anything, so nothing here leaves a call behind.
 
-It also refuses a body whose first line is not `Closes #N` at all. Reading nothing out of a body
-and publishing it anyway is the shape of the failure this record is about.
+When N and M differ it publishes nothing, prints which issue each one names, and exits zero. That
+is not a wrong push being let through. It is the first push of every run, which record 0008 and
+`AGENTS.md` both ask for, and a job that goes red on the ordinary case is a job a reader stops
+opening. Record 0009 settled the same coin for a hook that speaks on every command. The answer is
+the one a branch that already has a pull request gets, which is a line saying what was not done
+and why.
+
+Two cases stay loud and turn the job red, because no ordinary push reaches either one. A body
+whose first line is not `Closes #N` at all, which is a body nobody wrote a closing line into. And
+a head branch that names no issue, which leaves the check nothing to read. Reading nothing out of
+a body and publishing it anyway is the shape of the failure this record is about.
 
 The number is read off the first line and nowhere else. A body names other issues in its prose,
 and a record it cites carries a number too. The line a body opens with is the one that says what
@@ -53,15 +62,32 @@ run. The branch is still pushed right after the first commit, as record 0008 say
 `AGENTS.md` says. What changed is that the pushes before that one publish nothing, and the reason
 they publish nothing is written down rather than hoped for.
 
+How they publish nothing is by skipping. The first push of a run finds the text of the run before
+it, the two numbers disagree, and the publish step prints one line and exits zero. The job stays
+green. A reader who opens it reads which issue the branch names and which issue the body closes,
+which is enough to see that the run has not written its own body yet.
+
+Nothing has to take the two files off a fresh branch. A run that deleted them in its first commit
+was working around a red this record decided not to have, and that instruction lived outside the
+repository, where a reader of the repository could not find it.
+
 A run that writes a body and forgets `Closes #N` gets a red job and no pull request. That is
 louder than a body with no closing line, which merges and leaves the issue open.
 
-Six tests plant the new cases. A body that closes the issue the branch names, a body that closes
+Nine tests plant the new cases. A body that closes the issue the branch names, a body that closes
 another one, a body that opens with something else, a body with nothing in it, a number further
-down the body that is not read, and a head branch that names no issue. Four more read the
-workflow, so that the publish step keeps handing the publisher the branch that was pushed.
+down the body that is not read, and a head branch that names no issue. Three of the nine run the
+script end to end and read the exit code, which is the thing the workflow acts on, one green and
+two red. Four more read the workflow, so that the publish step keeps handing the publisher the
+branch that was pushed.
 
 ## What this does not cover
+
+A run that never writes its own body now ends green with no pull request. The red on the first
+push used to say so, at the cost of saying it on every run that was going fine. What says so now
+is the pull request that is not there, which is what the next run reads when it picks an issue. A
+body written for another issue is the ordinary state of a branch for most of a run, so this push
+is not where that can be caught.
 
 A body on `main` whose issue is the issue of the branch being pushed would pass without having
 been written for that run. The check reads a number, not an author and not a date, and two texts
