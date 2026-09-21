@@ -39,6 +39,8 @@ Not every machine has a working `python3`. The gate hook tries it first and fall
 
 The gate also refuses a private term when `FENCED_TERMS_FILE` points at a list of them. That list belongs to a machine and never to this repository.
 
+So the term rules run only where a list is. A clone that has none is the ordinary case, the run still exits zero, and it says which rules it ran and which it could not. `clean` never covers a rule that did not run. A change to how a term is matched is proved on the machine that holds a list, never in a run that has none. That decision is `docs/adr/0009-a-run-says-which-rules-it-could-not-run.md`.
+
 ## Pull requests
 
 One issue, one branch named `claude/issue-N`, one pull request. Push right after the first commit, not at the end.

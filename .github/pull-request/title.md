@@ -1,1 +1,1 @@
-runs: open the pull request from a runner, because the sandbox path appends
+gates: a run with no term list says clean without saying what it skipped

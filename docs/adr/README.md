@@ -17,3 +17,4 @@ below fails the build, and so does a row below that points at a file that is not
 | [0006 A pull request body is published once by a plain REST call and never edited](0006-a-pull-request-body-is-published-once-and-never-edited.md) | accepted |
 | [0007 A private term is read across the whitespace that hides it](0007-a-private-term-is-read-across-whitespace.md) | accepted |
 | [0008 A pull request is opened from a workflow runner](0008-a-pull-request-is-opened-from-a-workflow-runner.md) | accepted |
+| [0009 A run says which rules it could not run](0009-a-run-says-which-rules-it-could-not-run.md) | accepted |

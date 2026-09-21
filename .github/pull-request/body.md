@@ -1,60 +1,73 @@
-Closes #23
+Closes #25
 
 ## What
 
-The branch carries the text of its own pull request, and a workflow publishes it from a runner.
+A run of `scripts/gates.py` now says which rules it ran and which it could not, and the word `clean` never covers a rule that did not run.
 
-A run writes the title to `.github/pull-request/title.md` and the body to `.github/pull-request/body.md`, commits them and pushes. `.github/workflows/pull-request.yml` runs on a pushed `claude/` branch, runs the text gate over the two files, and calls the publisher from the runner. The job fails rather than publishing text that breaks a rule, and it does nothing at all when the branch carries neither file.
+With a list of private terms pointed at, all three rules run and the run says so, with the size of the list. A list of twelve terms reads like this.
 
-The text is the branch's and the rules are `main`'s. The job checks the pushed branch out, checks `main` out into `rules-from-main`, and runs `main`'s text gate and `main`'s publisher over the two files the branch carries. A branch says what its pull request says. It does not say what the gate refuses or what the publisher is allowed to do, and the job that runs them holds write on pull requests.
+    gates: ran the tests, the text rules, the term rules over a list of 12
+    gates: clean
 
-`scripts/publish.py` now asks GitHub first whether the branch already has a pull request, and publishes nothing when it has one. Nothing else about it changed. It posts with `urllib.request`, reads the pull request back, runs the gate again over the stored body, and still has no route that changes a body that already exists.
+With no list, which is the ordinary state of a clone, the term rules do not run and the run says that too.
 
-`ci.yml` also runs on a pushed `claude/` branch now.
+    gates: ran the tests, the text rules
+    gates: did not run the term rules, because no list of private terms was pointed at, by --terms-file or FENCED_TERMS_FILE
+    gates: clean apart from the term rules
 
-`AGENTS.md` says the branch carries the title and the body, and no longer tells a run to call the publisher itself.
+`--text` gets the same treatment, because that route never runs the suite and used to print `clean` all the same.
 
-The decision is `docs/adr/0008-a-pull-request-is-opened-from-a-workflow-runner.md`.
+The exit code does not move. A clone with no private list is not a failure, so a run without one still exits zero. This is a reporting rule and not a new refusal.
+
+The hook stays quiet when every rule ran and nothing was found. It writes the same accounting when a rule was skipped, and it writes it above `gates: blocked` when it blocks.
+
+`AGENTS.md` says the term rules run only where a list is, and that a change to how a term is matched is proved on the machine that holds one.
+
+The decision is `docs/adr/0009-a-run-says-which-rules-it-could-not-run.md`.
 
 ## Why
 
-Record 0006 said the line naming the agent came from a publishing tool, and that a plain REST call would have nothing in it to append one. The run on issue 17 tested that. The publisher posted straight at the GitHub api from the night sandbox, read the pull request back, and found the line on the stored body.
+The list of private terms is named by `FENCED_TERMS_FILE` and lives on one machine. `.gitignore` keeps it out of every clone, which is the point of it. So a run in a sandbox never has one, the term rules never run there, and the gate printed `gates: clean`.
 
-So the append is not in a publishing program. It is in the path out of that machine, which every call from inside it travels, and no program inside it can walk around. The only way to post a body that nothing appends to is to post it from somewhere else. The runner is somewhere else, and the branch is how the text gets there.
+`clean` is a word about every rule. Printed by a run where one rule never started, it says something that is not true, and it says it to the reader who has no other way to find out.
 
-That also puts the body under the commit gate. Before this it was the one piece of public text no hook ever saw.
+The branch on issue 19 changed how a term is matched, ran the gate before every commit as the procedure asks, and was told everything was fine. The new matching refused a file already on `main`. The gate was reporting a partial run in the words of a full one.
+
+A gate that cannot run a rule should say so, the same way it refuses a commit whose address it cannot read rather than passing it for lack of evidence.
 
 ## Tests
 
-`python -m pytest` is green at 244 tests, and `python scripts/gates.py` is clean.
+`python -m pytest` is green at 248 tests. `python scripts/gates.py` reports clean apart from the term rules, which is the new line and the correct one for a clone with no list.
 
-Seven of those tests are new, and each one plants a case in `tests/test_publish.py`. A branch that already has a pull request gets nothing, and the fake transport records no call after the listing. A closed pull request on the branch counts the same way. The listing the publisher asks for is read back and checked, that it names this branch and that it asks for every state. An answer that is not a listing at all is not read as a pull request, and the branch still gets one. Then the workflow itself, read as text. That it runs the gate and the publisher from the checkout of `main`, that a copy run from the branch is refused, and that a workflow which never checks `main` out is refused.
+Four of those tests are new, in `tests/test_gates.py`.
 
-The twenty two tests that were already there still hold, including the one that reads the source of the publisher and refuses the words that would start an edit.
+A run with a list names the term rules and the size of the list, and its verdict is `gates: clean` on its own. A run without one lists the term rules as a rule it did not run, carries the reason, and its verdict names them. A run of the text rules alone counts the suite as a rule it did not run. Then the whole route twice, as a subprocess, one run with a list and one without, both exiting zero, reading the difference in what a passing run says.
 
-The two paths through the workflow ran on this branch before this body was written. The push that carried no title and no body left the publish step skipped and the job green. The push that carried both reached the publish step and answered 403, because the repository setting that lets a workflow open a pull request was off. This body existing on GitHub is the proof that it is on.
+The four earlier tests that plant a term still hold, and so do the rest.
 
 ## Decisions I made
 
-- The two files have fixed names under `.github/pull-request/`, so the commit hook reads them as tracked Markdown with everything else. They land on `main` when this merges and the next branch writes over them. A folder that kept one body per issue would grow without end.
-- A closed pull request on the branch counts as already there. A closed pull request is a decision somebody made, and a push that opened a second one would take that decision back without saying so.
-- `ci.yml` runs on a pushed `claude/` branch now. A pull request opened with the token a workflow runs with starts no workflow run of its own, so this pull request would have carried no checks at all. A branch whose pull request a person opens by hand queues both runs, which is the rarer case and cheap.
-- The publish job runs the text rules over the two files and not the whole suite, because `ci.yml` runs the suite on the same commit on both versions of Python.
-- The pull request opens on the push that carries the body, which is the last push of a run. The branch is still pushed right after the first commit, as `AGENTS.md` asks.
-- `main` is checked out into `rules-from-main` inside the workspace, and the branch is checked out first, because a checkout at the root of the workspace cleans what is already in it.
-- The record says what this does not cover. A push event runs the workflow file from the branch that was pushed, so the branch still says whether the job runs at all and what steps it has. Reading the two scripts from `main` keeps the rules of this publish out of the reach of the branch being published, and it is not a fence against a branch written to defeat it.
-- `AGENTS.md` says the rules come from `main` too, because the sentence that tells a run what the workflow does had the same gap the record had.
-- This body was rewritten before the push that carries it, because the push is what opens the pull request and a body is never edited after that.
-- Record 0006 keeps its status of accepted. What it decided stands, which is one route out and no edit ever. Record 0008 says which machine makes the call and why the reason in the older record was wrong.
+- A missing list reports and does not fail. Refusing every commit in every clone that is not the one machine would make the gate unusable where it is most often run, and a gate people route around is worse than a gate that says less than they hoped.
+- `--text` counts the suite as a rule it did not run. The issue names the term rules, and this is the same hole with a different rule in it. A route that prints `clean` while the suite never ran is the thing the issue is about.
+- The accounting prints on a failing run too, above the findings, so a reader of a refusal sees what was and was not checked.
+- The hook says nothing when every rule ran and nothing was found. A hook that speaks on every command is a hook a reader stops reading.
+- The size of the list is said and the terms are not. The count is enough to tell a list that loaded from a list that is empty, and the terms belong to the machine.
+- `clean apart from` keeps the word for the rules that did run. A separate word would read as a failure, and the exit code says it is not one.
 
 ## Run notes
 
 > No dash used as punctuation and no semicolon, in Markdown or in a docstring. Short sentences. Describe what is there instead of selling it.
 
-Two nights on `claude/issue-23`. The first wrote the publisher, the workflow, the record and these two files, in three commits pushed as they were made. Tonight is one commit on top of them. The workflow takes its rules from `main`, the record says which copy makes the call, and `AGENTS.md` says the same.
+One commit on `claude/issue-25`, pushed right after it was made. The change is `scripts/gates.py`, four tests, `AGENTS.md`, record 0009 and its row in the index.
 
-The gates were quick. `python -m pytest` takes about 0.5 seconds at 244 tests, and `python scripts/gates.py`, which is the suite and the text rules over every tracked file, takes about 0.8 seconds. The hook in `.claude/settings.json` ran the same gate before the commit and before the push. No gate failed.
+The gates were quick. `python -m pytest` takes about 0.6 seconds at 248 tests. `python scripts/gates.py`, which is the suite and the text rules over every tracked file, takes about 0.8 seconds. `python scripts/gates.py --text` takes about 0.14 seconds. The hook in `.claude/settings.json` ran the same gate before the commit and before the push. No gate failed.
 
-Two things about the machine this run works in. `pytest` was not installed in it, so it was installed before the first gate ran. The clone arrived configured with an address the gate refuses, so it was set to the address every commit on `main` already carries, and the gate read the new one. There is no `gh` here either, so the reads of issues and of workflow runs went through the REST api. Nothing was written to GitHub from here except the push.
+This run is stopped and issue 25 carries the label `stuck`. The reason is not the work above, which is finished and pushed. The push that carries a first commit now also carries `.github/pull-request/title.md` and `.github/pull-request/body.md` as they stand on `main`, which is the text of the previous run. The workflow published them, so pull request 30 opened on this branch with the title of issue 23 and a body that says `Closes #23`.
 
-What this run did not do. It did not turn on the repository setting that lets a workflow open a pull request, because that is a setting and not code. It did not touch the parts of the branch the issue said were right, which are the declared permissions, the token, the branch name reaching the shell through the environment, the pinned actions, the concurrency group, the skip on a deletion, and publishing nothing when a pull request already exists. It did not read the comments on issue 23.
+That cannot be repaired from a run. `scripts/publish.py` publishes nothing when the branch already has a pull request, and a closed one counts the same way, so closing 30 does not let this branch get a correct one. Record 0006 says a body is published once and never edited, and the publisher has no route that changes a body that already exists. Editing it from here is the one thing record 0006 refuses, because the edit is what writes the version before it into the history of the body, and GitHub keeps that version for good.
+
+So this file is the body pull request 30 should have carried, and it is here on the branch rather than on GitHub. A person decides what happens to 30.
+
+One more thing this run found. The comment it wrote on issue 25 was read by the text gate first and passed. The stored comment carries a line under a rule, naming the agent and linking to its run, which the run did not write. So the append record 0008 describes is not only on the route a pull request body takes. It is on an issue comment from the same machine too. The comment was left as it stands, because record 0006 is about exactly this and an edit would write the version before it into the history of the comment.
+
+The hole underneath is that the two files live on `main` and a branch inherits them, so the first push of every run publishes the previous run's text. It wants an issue of its own. What this run did not do is open that issue, change the workflow, or touch pull request 30 in any way.

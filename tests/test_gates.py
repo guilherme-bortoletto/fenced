@@ -6,14 +6,18 @@ The text gate reads a file, including one that is not in this tree at all, such 
 body of a pull request on its way out.
 
 The tests after those plant a body carrying attribution and expect the gate to refuse it.
-The last ones plant a term from a list written here, whole, written across a line break and
-written with a space inside it, and expect a refusal each time.
+Then a term from a list written here, whole, written across a line break and written with a
+space inside it, with a refusal expected each time.
+The last ones read what a run says about itself, because a rule that did not run has to be
+said out loud and the word clean never covers one.
 """
 
 from __future__ import annotations
 
 import importlib.util
+import os
 import subprocess
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -254,3 +258,62 @@ def test_the_collapsed_views_say_which_line_each_character_came_from(tmp_path):
         assert len(view) == len(lines), filler
         assert view.replace(" ", "") == "abcd", filler
         assert lines[0] == 1 and lines[-1] == 3, filler
+
+
+def gate_run(arguments: list[str], environment: dict[str, str]) -> subprocess.CompletedProcess:
+    """The gate the way a run invokes it, in the environment that run would have."""
+    return subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "gates.py"), *arguments],
+        capture_output=True,
+        text=True,
+        cwd=str(ROOT),
+        env={**os.environ, **environment},
+    )
+
+
+def test_a_run_with_a_list_says_it_ran_the_term_rules_over_it():
+    ran, skipped = gates.rules_run(True, [PLANTED])
+    assert ran == ["the tests", "the text rules", "the term rules over a list of 1"]
+    assert skipped == []
+    assert gates.verdict(skipped) == "gates: clean"
+
+
+def test_a_run_without_a_list_says_the_term_rules_did_not_run():
+    ran, skipped = gates.rules_run(True, [])
+    assert ran == ["the tests", "the text rules"]
+    assert skipped == [("the term rules", gates.NO_LIST)]
+    assert gates.verdict(skipped) == "gates: clean apart from the term rules"
+    assert gates.accounting(ran, skipped) == [
+        "gates: ran the tests, the text rules",
+        f"gates: did not run the term rules, because {gates.NO_LIST}",
+    ]
+
+
+def test_a_run_of_the_text_rules_alone_counts_the_tests_as_a_rule_it_did_not_run():
+    ran, skipped = gates.rules_run(False, [PLANTED])
+    assert ran == ["the text rules", "the term rules over a list of 1"]
+    assert skipped == [("the tests", gates.TEXT_ONLY)]
+    assert gates.verdict(skipped) == "gates: clean apart from the tests"
+
+
+def test_a_run_with_a_list_and_a_run_without_one_do_not_say_the_same_thing(tmp_path):
+    """The whole route twice, reading the difference in what a passing run says.
+
+    Both runs pass and both exit zero, because a clone with no list is the ordinary case
+    and not a failure. What separates them is the line about the term rules.
+    """
+    body = tmp_path / "body.md"
+    body.write_text(BODY, encoding="utf-8")
+    listed = tmp_path / "terms.txt"
+    listed.write_text(f"{PLANTED}\n", encoding="utf-8")
+
+    without = gate_run(["--text", str(body)], {"FENCED_TERMS_FILE": ""})
+    assert without.returncode == 0, without.stderr
+    assert f"gates: did not run the term rules, because {gates.NO_LIST}" in without.stdout
+    assert "gates: clean apart from" in without.stdout
+    assert "gates: clean\n" not in without.stdout
+
+    holding = gate_run(["--text", str(body), "--terms-file", str(listed)], {})
+    assert holding.returncode == 0, holding.stderr
+    assert "the term rules over a list of 1" in holding.stdout
+    assert "gates: did not run the term rules" not in holding.stdout
