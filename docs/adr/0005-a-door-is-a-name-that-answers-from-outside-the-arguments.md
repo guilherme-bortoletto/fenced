@@ -101,3 +101,7 @@ A planted violation test covers every name on all three lists, one planted file 
 asserts the exact line the fence reports. The two tests that walk the module lists read the
 constants, so a name added later arrives with a planted violation of its own. What each of those
 tests proves is the refusal, and the planting is the part written by hand.
+
+What the two sentences of the decision name is written out name by name in
+`docs/adr/0010-a-door-list-is-checked-against-the-record.md`, and a test holds the three lists
+to it.

@@ -1,7 +1,9 @@
 """The six fences of this repository.
 
 Each fence is a plain function that returns the list of things it found wrong,
-plus a test that runs it on this tree and expects that list to be empty.
+plus a test that runs it on this tree and expects that list to be empty. The first
+fence has a second function beside it, which holds its lists of doors to the record
+that says what a door is.
 
 They are hand written on purpose. A reader should see the rule and the test that
 enforces it on one screen. When a project outgrows this, import-linter,
@@ -178,6 +180,137 @@ def impure_imports(root: Path) -> list[str]:
 
 def test_domain_and_ports_import_only_the_standard_library():
     assert impure_imports(ROOT) == []
+
+
+# Fence 1 again. The three lists carry what the record that defines a door names.
+
+DOOR_RECORD = "docs/adr/0005-a-door-is-a-name-that-answers-from-outside-the-arguments.md"
+DOOR_TABLE = "docs/adr/0010-a-door-list-is-checked-against-the-record.md"
+
+
+def flat(text: str) -> str:
+    """The text with every run of whitespace turned into one space.
+
+    A sentence of a record is wrapped over two lines, and a sentence quoted out of it is
+    still the same sentence.
+    """
+    return " ".join(text.split())
+
+
+def quoted_sentences(text: str) -> list[str]:
+    """Every block quote in a Markdown file, each one joined into a single line."""
+    blocks = []
+    current = []
+    for line in text.splitlines():
+        if line.strip().startswith(">"):
+            current.append(line.strip().lstrip(">"))
+            continue
+        if current:
+            blocks.append(flat(" ".join(current)))
+            current = []
+    return blocks + ([flat(" ".join(current))] if current else [])
+
+
+def table_rows(text: str, header: str) -> list[tuple[str, list[str]]]:
+    """The rows of the Markdown table whose second header cell names this constant.
+
+    A row is its first cell and the comma separated words of its second, with the
+    backticks taken off both. The table ends at the first line that is not a row of two
+    cells, and a row of rule characters is the line under the header.
+    """
+    rows = []
+    inside = False
+    for line in text.splitlines():
+        cells = [cell.replace("`", "").strip() for cell in line.strip().strip("|").split("|")]
+        if not line.strip().startswith("|") or len(cells) != 2:
+            if inside:
+                break
+            continue
+        if not inside:
+            inside = header in cells[1]
+        elif not set(cells[0]) <= set("-: "):
+            rows.append((cells[0].lower(), [word for word in re.split(r",\s*", cells[1]) if word]))
+    return rows
+
+
+def named_in(sentence: str) -> list[str]:
+    """The things one sentence of the record names, which is one per comma."""
+    parts = re.split(r",\s*", sentence.strip().rstrip("."))
+    return [re.sub(r"^and\s+", "", part).strip().lower() for part in parts if part.strip()]
+
+
+def door_list_problems(
+    root: Path,
+    doors: set[str] = DOORS_TO_THE_OUTSIDE,
+    sources: set[str] = SOURCES_OUTSIDE_THE_ARGUMENTS,
+    runtime: tuple[str, ...] = RUNTIME_DOORS,
+) -> list[str]:
+    """Where the record that defines a door and the three lists of doors disagree.
+
+    The record quotes its two definitions and writes out, thing by thing, the standard
+    library names that reach each one. This reads the quotes back against the record, the
+    rows against the quotes, and every name in a row against the list the table says it is
+    on. So the omission a list is one name short of is a failing test rather than a planted
+    import that nobody thought to write.
+
+    A name that is both kinds is on the list of the first kind, which is why a row of the
+    second kind is satisfied by either list.
+
+    The lists arrive as arguments so a planted record can be read against a planted list.
+    Everywhere else they are the three the fence itself reads.
+    """
+    absent = [
+        f"{name} is not here, so the lists are checked against nothing"
+        for name in (DOOR_RECORD, DOOR_TABLE)
+        if not (root / name).is_file()
+    ]
+    if absent:
+        return absent
+    said = flat((root / DOOR_RECORD).read_text(encoding="utf-8"))
+    written = (root / DOOR_TABLE).read_text(encoding="utf-8")
+    quotes = quoted_sentences(written)
+    if len(quotes) != 2:
+        return [f"{DOOR_TABLE} quotes {len(quotes)} sentences of the record and not two"]
+    found = []
+    kinds = (
+        (quotes[0], "DOORS_TO_THE_OUTSIDE", doors),
+        (quotes[1], "SOURCES_OUTSIDE_THE_ARGUMENTS", doors | sources),
+    )
+    for sentence, header, allowed in kinds:
+        if sentence not in said:
+            found.append(f"the table quotes a sentence the record does not say, {sentence}")
+            continue
+        rows = table_rows(written, header)
+        named = named_in(sentence)
+        found += [
+            f"the record names {thing}, and the table has no row for it"
+            for thing in named
+            if thing not in [label for label, _ in rows]
+        ]
+        for label, names in rows:
+            if label not in named:
+                found.append(f"the table has a row for {label}, which the record does not name")
+            for name in names:
+                if name not in sys.stdlib_module_names:
+                    found.append(f"the row for {label} names {name}, which is not a module")
+                elif name not in allowed:
+                    found.append(f"the row for {label} names {name}, which is on no list of doors")
+    reached = [name for _, names in table_rows(written, "RUNTIME_DOORS") for name in names]
+    found += [
+        f"the table names no row reaching {name}, which the fence refuses by name"
+        for name in runtime
+        if name not in reached
+    ]
+    found += [
+        f"the table names {name}, which is on no list of doors"
+        for name in reached
+        if name not in runtime
+    ]
+    return found
+
+
+def test_the_door_lists_carry_every_name_the_record_calls_a_door():
+    assert door_list_problems(ROOT) == []
 
 
 # Fence 2. Changing the model must not mean starting over.
@@ -511,6 +644,76 @@ def test_the_import_fence_rejects_every_name_it_calls_a_runtime_door(tmp_path):
         assert impure_imports(tmp_path) == [
             f"src/fenced/ports/crm.py:2 calls {name}"
         ], f"{name} slipped through"
+
+
+PLANTED_DEFINITION = (
+    "One kind reaches something the process does not hold. A file, the terminal.\n"
+    "The other kind answers from outside the arguments. A clock.\n"
+)
+PLANTED_TABLE = (
+    "> A file, the terminal.\n\n"
+    "| The first kind | Names on `DOORS_TO_THE_OUTSIDE` |\n"
+    "| --- | --- |\n"
+    "| a file | `io` |\n"
+    "| the terminal | `curses` |\n\n"
+    "> A clock.\n\n"
+    "| The second kind | Names on `SOURCES_OUTSIDE_THE_ARGUMENTS` |\n"
+    "| --- | --- |\n"
+    "| a clock | `time` |\n"
+)
+
+
+def plant_the_door_records(root: Path, definition: str, table: str) -> None:
+    """A pair of records shaped like 0005 and 0010, for a check that reads both."""
+    (root / DOOR_RECORD).parent.mkdir(parents=True, exist_ok=True)
+    (root / DOOR_RECORD).write_text(definition, encoding="utf-8")
+    (root / DOOR_TABLE).write_text(table, encoding="utf-8")
+
+
+def test_the_record_check_rejects_a_door_the_list_does_not_carry(tmp_path):
+    plant_the_door_records(tmp_path, PLANTED_DEFINITION, PLANTED_TABLE)
+    assert door_list_problems(tmp_path, {"io"}, {"time"}, ()) == [
+        "the row for the terminal names curses, which is on no list of doors"
+    ]
+
+
+def test_the_record_check_rejects_a_table_that_does_not_match_the_sentence(tmp_path):
+    table = PLANTED_TABLE.replace("| the terminal | `curses` |", "| a socket | `socket` |")
+    plant_the_door_records(tmp_path, PLANTED_DEFINITION, table)
+    assert door_list_problems(tmp_path, {"io", "socket"}, {"time"}, ()) == [
+        "the record names the terminal, and the table has no row for it",
+        "the table has a row for a socket, which the record does not name",
+    ]
+
+
+def test_the_record_check_rejects_a_quote_the_record_does_not_say(tmp_path):
+    reworded = PLANTED_DEFINITION.replace("the terminal", "a socket")
+    plant_the_door_records(tmp_path, reworded, PLANTED_TABLE)
+    assert door_list_problems(tmp_path, {"io", "curses"}, {"time"}, ()) == [
+        "the table quotes a sentence the record does not say, A file, the terminal."
+    ]
+
+
+def test_the_record_check_rejects_a_name_in_a_row_that_is_not_a_module(tmp_path):
+    table = PLANTED_TABLE.replace("`curses`", "`curses`, `curtains`")
+    plant_the_door_records(tmp_path, PLANTED_DEFINITION, table)
+    assert door_list_problems(tmp_path, {"io", "curses"}, {"time"}, ()) == [
+        "the row for the terminal names curtains, which is not a module"
+    ]
+
+
+def test_the_record_check_rejects_a_runtime_door_no_row_reaches(tmp_path):
+    plant_the_door_records(tmp_path, PLANTED_DEFINITION, PLANTED_TABLE)
+    assert door_list_problems(tmp_path, {"io", "curses"}, {"time"}, ("eval",)) == [
+        "the table names no row reaching eval, which the fence refuses by name"
+    ]
+
+
+def test_the_record_check_refuses_a_tree_with_no_record_in_it(tmp_path):
+    assert door_list_problems(tmp_path, {"io"}, {"time"}, ()) == [
+        f"{DOOR_RECORD} is not here, so the lists are checked against nothing",
+        f"{DOOR_TABLE} is not here, so the lists are checked against nothing",
+    ]
 
 
 def test_the_import_fence_still_admits_the_arithmetic_the_domain_is_made_of(tmp_path):
