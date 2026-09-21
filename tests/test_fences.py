@@ -33,12 +33,21 @@ DOORS_TO_THE_OUTSIDE = {
     "bz2", "lzma", "glob", "fileinput", "linecache", "configparser", "netrc",
     "platform", "getpass", "zoneinfo", "runpy", "code",
     "pkgutil", "zipimport", "modulefinder", "sysconfig", "site",
+    # The raw operating system module under either name, and the user database beside it.
+    "posix", "nt", "grp", "pwd",
+    # A file written, compared or compiled, which is a file like any other.
+    "filecmp", "compileall", "py_compile", "zipapp",
+    # The terminal, which the record names outright, and the log of the machine.
+    "curses", "tty", "termios", "pty", "readline", "rlcompleter", "syslog",
 }
 # Standard library, and a door of the other kind. What comes back is not in the arguments
 # and is not the same twice, so a rule that reads one is a rule no test can pin. A clock,
 # a source of randomness and a second thread of execution are the three that matter.
 SOURCES_OUTSIDE_THE_ARGUMENTS = {
     "time", "datetime", "random", "secrets", "uuid", "threading",
+    # A second thread of execution under its other two names, and a scheduler whose
+    # default clock is the one `time` reads.
+    "_thread", "concurrent", "sched",
 }
 NETWORK_NAMES = ("openai", "anthropic", "gemini", "httpx", "requests")
 LLM_ADAPTER = Path("src/fenced/adapters/llm_extractor.py")
@@ -461,6 +470,20 @@ def test_the_import_fence_rejects_reading_the_install_layout(tmp_path):
         planted.joinpath("crm.py").write_text(f"import {name}\n", encoding="utf-8")
         assert impure_imports(tmp_path) == [
             f"src/fenced/ports/crm.py imports {name}, which reaches outside"
+        ], f"{name} slipped through"
+
+
+def test_the_import_fence_rejects_the_terminal_and_a_second_thread_of_execution(tmp_path):
+    """The names issue 28 planted, which the record calls doors and the list did not carry."""
+    planted = tmp_path / "src" / "fenced" / "domain"
+    planted.mkdir(parents=True)
+    outside = ("curses", "tty", "termios", "pty", "syslog", "compileall", "py_compile", "zipapp")
+    reasons = {name: "reaches outside" for name in outside}
+    reasons["concurrent"] = "answers from outside the arguments"
+    for name, reason in sorted(reasons.items()):
+        planted.joinpath("lead.py").write_text(f"import {name}\n", encoding="utf-8")
+        assert impure_imports(tmp_path) == [
+            f"src/fenced/domain/lead.py imports {name}, which {reason}"
         ], f"{name} slipped through"
 
 
