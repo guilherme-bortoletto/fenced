@@ -35,12 +35,13 @@ that journal.
 
 Each fence is one short function. They are hand written on purpose, with no library, so the rule
 and the check sit on one screen. All six are tested against a planted violation, because a fence
-nobody ever watched reject anything is decoration.
+nobody ever watched reject anything is decoration. The first fence has a second function beside it,
+which holds its lists of doors to the record that says what a door is.
 
 ## Fifteen minute tour
 
-1. `tests/test_fences.py`. The point of the repository. Six rules, six checks, and eight tests that
-   plant a violation and expect a refusal.
+1. `tests/test_fences.py`. The point of the repository. Six rules, seven checks, and twenty seven
+   tests that plant a violation and expect a refusal.
 2. `docs/adr/0001-architecture-rules-live-in-tests.md`. Why they are tests and not a config file.
 3. `scripts/gates.py`. The same rules on text, for the places a test cannot reach.
 4. `.github/workflows/ci.yml`. Python 3.12 and 3.13, actions pinned by commit.

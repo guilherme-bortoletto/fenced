@@ -1,1 +1,1 @@
-gates: a run with no term list says clean without saying what it skipped
+fences: the door list omits names the record itself calls doors

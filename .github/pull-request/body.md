@@ -1,73 +1,62 @@
-Closes #25
+Closes #28
 
 ## What
 
-A run of `scripts/gates.py` now says which rules it ran and which it could not, and the word `clean` never covers a rule that did not run.
+The nine names the issue planted are refused now, and the lists that refuse them are held to the record that says what a door is.
 
-With a list of private terms pointed at, all three rules run and the run says so, with the size of the list. A list of twelve terms reads like this.
+Fifteen names joined `DOORS_TO_THE_OUTSIDE`. `curses`, `tty`, `termios`, `pty`, `readline` and `rlcompleter` reach the terminal, which the record names outright. `compileall`, `py_compile`, `zipapp` and `filecmp` write or read a file on disk. `syslog` reaches the log of the machine. `posix` and `nt` are the module `os` is, under the name the platform gives it, and `grp` and `pwd` read the user database beside it.
 
-    gates: ran the tests, the text rules, the term rules over a list of 12
-    gates: clean
+Three names joined `SOURCES_OUTSIDE_THE_ARGUMENTS`. `concurrent` and `_thread` are a second thread of execution, which `threading` was already refused for. `sched` runs on a clock it reads itself unless it is handed another.
 
-With no list, which is the ordinary state of a clone, the term rules do not run and the run says that too.
+The part meant to last is the check beside them. `docs/adr/0010-a-door-list-is-checked-against-the-record.md` quotes the two sentences of record 0005 and writes out, thing by thing, the standard library names that reach each one. `door_list_problems` in `tests/test_fences.py` reads the quotes back against record 0005, the rows against the quotes, and every name in a row against the list the table says it is on. It fails on six things.
 
-    gates: ran the tests, the text rules
-    gates: did not run the term rules, because no list of private terms was pointed at, by --terms-file or FENCED_TERMS_FILE
-    gates: clean apart from the term rules
+    a quote record 0005 does not say
+    a thing a sentence names with no row
+    a row for something no sentence names
+    a name in a row that is not a standard library module
+    a name in a row that is on no list of doors
+    a name on RUNTIME_DOORS that no row reaches, or a row that reaches what is not on it
 
-`--text` gets the same treatment, because that route never runs the suite and used to print `clean` all the same.
+So the next omission is a row that disagrees with a list, which is a red suite, instead of a name somebody happened to plant.
 
-The exit code does not move. A clone with no private list is not a failure, so a run without one still exits zero. This is a reporting rule and not a new refusal.
-
-The hook stays quiet when every rule ran and nothing was found. It writes the same accounting when a rule was skipped, and it writes it above `gates: blocked` when it blocks.
-
-`AGENTS.md` says the term rules run only where a list is, and that a change to how a term is matched is proved on the machine that holds one.
-
-The decision is `docs/adr/0009-a-run-says-which-rules-it-could-not-run.md`.
+Record 0005 keeps its status and its decision. It gained one line pointing at 0010. The index carries 0010 and the README counts the checks and the planted tests again.
 
 ## Why
 
-The list of private terms is named by `FENCED_TERMS_FILE` and lives on one machine. `.gitignore` keeps it out of every clone, which is the point of it. So a run in a sandbox never has one, the term rules never run there, and the gate printed `gates: clean`.
+The issue is right that this is not the incompleteness record 0005 prices in. `threading` was refused and `concurrent` was not, and both are a second thread of execution. `select` was refused and `curses` was not, and the record names the terminal in the sentence that defines the list.
 
-`clean` is a word about every rule. Printed by a run where one rule never started, it says something that is not true, and it says it to the reader who has no other way to find out.
+A list that refuses one name and passes another doing the same thing is a bug. Record 0005 says so itself and says it is closed by name. What it had no answer for is the next one, because a name can be added forever and the sentence that named it has no way to say it is still waiting.
 
-The branch on issue 19 changed how a term is matched, ran the gate before every commit as the procedure asks, and was told everything was fine. The new matching refused a file already on `main`. The gate was reporting a partial run in the words of a full one.
-
-A gate that cannot run a rule should say so, the same way it refuses a commit whose address it cannot read rather than passing it for lack of evidence.
+Quoting the sentence into a record and reading it in a test is what gives the sentence a voice. The lists and the words that define them are one thing now, and they cannot drift apart quietly.
 
 ## Tests
 
-`python -m pytest` is green at 248 tests. `python scripts/gates.py` reports clean apart from the term rules, which is the new line and the correct one for a clone with no list.
+`python -m pytest` is green at 256 tests, up from 248. `python scripts/gates.py` is clean apart from the term rules, which is the correct verdict in a clone with no private list.
 
-Four of those tests are new, in `tests/test_gates.py`.
+Eight of those tests are new.
 
-A run with a list names the term rules and the size of the list, and its verdict is `gates: clean` on its own. A run without one lists the term rules as a rule it did not run, carries the reason, and its verdict names them. A run of the text rules alone counts the suite as a rule it did not run. Then the whole route twice, as a subprocess, one run with a list and one without, both exiting zero, reading the difference in what a passing run says.
+One plants each of the nine names from the issue inside `domain/` and asserts the exact line the fence reports, which is the report the issue asked for read back the other way. One runs the new check over this tree. Six plant a record and a list that disagree, one shape each. A name in a row that is on no list. A table whose rows do not match the sentence, in both directions at once. A quote the record does not say. A name in a row that is not a module at all. A runtime door no row reaches. A tree with neither record in it, which fails closed rather than passing on nothing.
 
-The four earlier tests that plant a term still hold, and so do the rest.
+The planted violation test that walks both module lists covers the eighteen new names without a line written for them, because it reads the constants.
 
 ## Decisions I made
 
-- A missing list reports and does not fail. Refusing every commit in every clone that is not the one machine would make the gate unusable where it is most often run, and a gate people route around is worse than a gate that says less than they hoped.
-- `--text` counts the suite as a rule it did not run. The issue names the term rules, and this is the same hole with a different rule in it. A route that prints `clean` while the suite never ran is the thing the issue is about.
-- The accounting prints on a failing run too, above the findings, so a reader of a refusal sees what was and was not checked.
-- The hook says nothing when every rule ran and nothing was found. A hook that speaks on every command is a hook a reader stops reading.
-- The size of the list is said and the terms are not. The count is enough to tell a list that loaded from a list that is empty, and the terms belong to the machine.
-- `clean apart from` keeps the word for the rules that did run. A separate word would read as a failure, and the exit code says it is not one.
+- The table lives in a new record and not inside 0005. The index says a record is not rewritten to match a later opinion. The decision of 0005 did not change, so it keeps its status and gains one line pointing forward.
+- The two sentences are copied into 0010 and not pointed at. A pointer cannot notice a reword. The test asserts the quote is a sentence record 0005 still says, so a reword fails the suite until the quote is reworded with it.
+- The first two tables are read one way. A name on a list with no row passes. `sys`, `importlib`, `signal` and `platform` reach things the two sentences never name, and record 0005 says the list is generous where a domain module might plausibly go. The direction worth failing on is a thing the record calls a door with no name behind it.
+- A name that is both kinds goes on the list of the first kind, because reaching outside the process is the larger claim and the fence reads that list first. `asyncio` and `multiprocessing` are the two. So a row of the second kind is satisfied by either list and a row of the first kind is not.
+- Eight names beyond the nine the issue planted. `posix` and `nt` are `os` reached under another name, which is the widest door on the list. `grp` and `pwd` read the user database. `filecmp` opens two files. `readline` and `rlcompleter` reach the terminal and a history file. `sched` reads a clock. Each one is a name the sentences already cover, and leaving them for the next issue would be leaving the same bug in place.
+- The rows carry the names whose claim is plain. `pickle` is on the list because loading one runs code, and no sentence of the record names that, so it has no row. A row is the record reading itself, and a stretched row is worse than none.
+- The README said eight planted tests and there were twenty six. The count is right again, and the fence paragraph says the first fence has a second function beside it.
 
 ## Run notes
 
 > No dash used as punctuation and no semicolon, in Markdown or in a docstring. Short sentences. Describe what is there instead of selling it.
 
-One commit on `claude/issue-25`, pushed right after it was made. The change is `scripts/gates.py`, four tests, `AGENTS.md`, record 0009 and its row in the index.
+Four commits on `claude/issue-28`, pushed one at a time from the first. The first commit takes `.github/pull-request/title.md` and `.github/pull-request/body.md` off the branch, because issue 31 is open and a branch created from `main` carries the text of the run before it. The two files come back in this commit, which is the last one, so this push is the one that publishes.
 
-The gates were quick. `python -m pytest` takes about 0.6 seconds at 248 tests. `python scripts/gates.py`, which is the suite and the text rules over every tracked file, takes about 0.8 seconds. `python scripts/gates.py --text` takes about 0.14 seconds. The hook in `.claude/settings.json` ran the same gate before the commit and before the push. No gate failed.
+The machine this run works in had no `pytest`. The first commit was refused by the hook, which said the tests did not run rather than that they passed. Installing `pytest` is what fixed it. Nothing in the repository changed for it, and no gate was skipped or softened to get past it.
 
-This run is stopped and issue 25 carries the label `stuck`. The reason is not the work above, which is finished and pushed. The push that carries a first commit now also carries `.github/pull-request/title.md` and `.github/pull-request/body.md` as they stand on `main`, which is the text of the previous run. The workflow published them, so pull request 30 opened on this branch with the title of issue 23 and a body that says `Closes #23`.
+The gates were quick. `python -m pytest` takes about 0.5 seconds at 256 tests. `python scripts/gates.py`, which is the suite and the text rules over every tracked file, takes about 0.8 seconds. `python scripts/gates.py --text` takes about 0.15 seconds. The hook ran the same gate before every commit and every push. No gate failed after `pytest` was there.
 
-That cannot be repaired from a run. `scripts/publish.py` publishes nothing when the branch already has a pull request, and a closed one counts the same way, so closing 30 does not let this branch get a correct one. Record 0006 says a body is published once and never edited, and the publisher has no route that changes a body that already exists. Editing it from here is the one thing record 0006 refuses, because the edit is what writes the version before it into the history of the body, and GitHub keeps that version for good.
-
-So this file is the body pull request 30 should have carried, and it is here on the branch rather than on GitHub. A person decides what happens to 30.
-
-One more thing this run found. The comment it wrote on issue 25 was read by the text gate first and passed. The stored comment carries a line under a rule, naming the agent and linking to its run, which the run did not write. So the append record 0008 describes is not only on the route a pull request body takes. It is on an issue comment from the same machine too. The comment was left as it stands, because record 0006 is about exactly this and an edit would write the version before it into the history of the comment.
-
-The hole underneath is that the two files live on `main` and a branch inherits them, so the first push of every run publishes the previous run's text. It wants an issue of its own. What this run did not do is open that issue, change the workflow, or touch pull request 30 in any way.
+What this run did not do. It did not go looking for doors nobody has named yet, because the rows are written by hand like the lists and a row that forgets a module is as silent as a list that forgot it. It did not give `sys`, `importlib`, `signal` or `platform` a row. It did not change the line the fence reports for a refused import, so every test that reads those lines still reads them. It did not touch `scripts/gates.py`, the workflow, or any pull request that is already open.
