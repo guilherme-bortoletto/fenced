@@ -6,7 +6,9 @@ came back changed must not be repaired, because the repair is the second version
 the history of the body keeps for good. A branch that already has a pull request gets
 nothing at all, because the workflow that calls this runs on every push to the branch.
 A body that closes an issue the head branch does not name belongs to another run, and
-the text rules cannot tell, because that text was written to pass them.
+the text rules cannot tell, because that text was written to pass them. That one is not
+a refusal. It is the first push of every run, so it publishes nothing, says why and
+exits zero.
 
 The transport is a fake that records the calls, so nothing in this file reaches GitHub.
 """
@@ -95,14 +97,24 @@ def test_the_body_that_reaches_the_wire_is_the_body_that_was_written():
     assert len(posted) == 1
     assert posted[0]["payload"]["body"] == BODY
     assert posted[0]["payload"]["title"] == TITLE
-    assert made == {"number": 7, "url": "https://github.com/o/r/pull/7", "published": True}
+    assert made == {
+        "number": 7,
+        "url": "https://github.com/o/r/pull/7",
+        "published": True,
+        "reason": "",
+    }
 
 
 def test_a_branch_that_already_has_a_pull_request_gets_nothing():
     """The workflow runs on every push to the branch. One of them opens the pull request."""
     fake = Fake(standing=[{"number": 4, "html_url": "https://github.com/o/r/pull/4"}])
     made = opened(fake)
-    assert made == {"number": 4, "url": "https://github.com/o/r/pull/4", "published": False}
+    assert made == {
+        "number": 4,
+        "url": "https://github.com/o/r/pull/4",
+        "published": False,
+        "reason": "this branch already has pull request 4",
+    }
     assert methods(fake) == []
 
 
@@ -132,12 +144,12 @@ def test_a_body_that_closes_the_issue_the_branch_names_is_sent():
     assert [call["method"] for call in fake.calls if call["method"] == "POST"] == ["POST"]
 
 
-def test_a_body_that_closes_another_issue_is_never_sent():
+def test_a_body_that_closes_another_issue_publishes_nothing_and_says_why():
     """The first push of a run finds the body of the run before it, and it reads clean."""
     fake = Fake()
-    with pytest.raises(publish.Refused) as refused:
-        opened(fake, body="Closes #23\n\n## What\n\nOne line.\n", head="claude/issue-25")
-    assert "names issue 25 and the body closes issue 23" in str(refused.value)
+    made = opened(fake, body="Closes #23\n\n## What\n\nOne line.\n", head="claude/issue-25")
+    assert made["published"] is False
+    assert "names issue 25 and the body closes issue 23" in made["reason"]
     assert fake.calls == []
 
 
@@ -375,3 +387,44 @@ def test_a_publish_step_that_reads_no_branch_is_refused():
 def test_a_publish_step_with_no_head_at_all_is_refused():
     planted = WORKFLOW.read_text(encoding="utf-8").replace('--head "$BRANCH" \\\n', "")
     assert "no head branch" in "\n".join(publish_without_the_check(planted))
+
+
+# What the workflow reads is the exit code. The ordinary case is the first push of a run,
+# where the branch carries the body of the run before it, and that push leaves the job
+# green. The two cases no ordinary push reaches stay red.
+
+
+def a_run(tmp_path, body, head="claude/issue-31"):
+    """One call to main over two files, with no transport, because none of these get that far."""
+    title = tmp_path / "title.md"
+    body_file = tmp_path / "body.md"
+    title.write_text(TITLE, encoding="utf-8")
+    body_file.write_text(body, encoding="utf-8")
+    return publish.main(
+        [
+            "--owner", "o",
+            "--repo", "r",
+            "--head", head,
+            "--title-file", str(title),
+            "--body-file", str(body_file),
+        ]
+    )
+
+
+def test_the_first_push_of_a_run_leaves_the_job_green(tmp_path, capsys):
+    """A branch cut from main carries the text of the run before it, on every run."""
+    code = a_run(tmp_path, "Closes #28\n\n## What\n\nThe run before this one.\n")
+    assert code == 0
+    assert "names issue 31 and the body closes issue 28" in capsys.readouterr().out
+
+
+def test_a_body_that_opens_with_something_else_turns_the_job_red(tmp_path, capsys):
+    code = a_run(tmp_path, "## What\n\nA body that forgot the line it opens with.\n")
+    assert code == 1
+    assert "not with `Closes #N`" in capsys.readouterr().err
+
+
+def test_a_head_branch_that_names_no_issue_turns_the_job_red(tmp_path, capsys):
+    code = a_run(tmp_path, BODY, head="claude/a-branch-of-its-own")
+    assert code == 1
+    assert "does not name an issue" in capsys.readouterr().err

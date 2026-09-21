@@ -18,10 +18,16 @@ appends a line of its own after the gate has read the file, so the file travels 
 GitHub as a commit on a branch and the call is made from the other end.
 
 Before it posts it reads the issue number twice, once off the head branch name and once
-off the first line of the body, and refuses when the two differ. The two files live on
-`main`, so every branch inherits the text of the run before it at the moment it is cut,
-and the first push of a run finds a body written for another issue. That body passes the
-text gate, because it was written to pass it. The number is what tells them apart.
+off the first line of the body. The two files live on `main`, so every branch inherits
+the text of the run before it at the moment it is cut, and the first push of a run finds
+a body written for another issue. That body passes the text gate, because it was written
+to pass it. The number is what tells them apart.
+
+When the two numbers differ this publishes nothing, says which issue each one names, and
+exits zero. That is the first push of every run, and a red that fires on the ordinary
+case is a red a reader learns to walk past. Two things stay loud, because neither one
+happens on an ordinary push. A body that does not open with `Closes #N` at all, and a
+head branch that names no issue.
 
 Before it posts it asks GitHub whether the branch already has a pull request. A branch
 is pushed many times in one run and the workflow runs on each push. The push that
@@ -151,6 +157,16 @@ def issue_of_the_body(body: str) -> str:
     return closing.group(1)
 
 
+def nothing_published(reason: str, number: int | None = None, url: str = "") -> dict:
+    """An answer that published nothing and carries the reason, for a run that is not wrong.
+
+    Two pushes reach here on an ordinary run. The one before this run wrote its own body,
+    which still carries the body of the run before it, and every push after the one that
+    opened the pull request. Neither is a mistake, so neither is an error.
+    """
+    return {"number": number, "url": url, "published": False, "reason": reason}
+
+
 def as_sent(text: str) -> str:
     """A body with the line endings GitHub stores it with folded back, for comparing."""
     return text.replace("\r\n", "\n").replace("\r", "\n")
@@ -189,25 +205,28 @@ def publish(
     needs to run on every push to a branch and still write one body.
 
     The issue number runs first, because a body that names another issue is not this
-    run's text at all, and no text rule can tell. The gate then runs on what is left.
+    run's text at all, and no text rule can tell. Such a body publishes nothing and says
+    why, the same answer a branch that already has a pull request gets. The gate then
+    runs on what is left.
     """
     named = issue_of_the_branch(head)
     closing = issue_of_the_body(body)
     if named != closing:
-        raise Refused(
+        return nothing_published(
             f"the head branch names issue {named} and the body closes issue {closing}, so "
-            f"the body was written for another run and nothing was published"
+            f"the body was written for another run"
         )
     gate("the title", title, terms)
     gate("the body", body, terms)
     key = token()
     standing = already_there(owner, repo, head, key, transport)
     if standing is not None:
-        return {
-            "number": standing.get("number"),
-            "url": standing.get("html_url", ""),
-            "published": False,
-        }
+        number = standing.get("number")
+        return nothing_published(
+            f"this branch already has pull request {number}",
+            number=number,
+            url=standing.get("html_url", ""),
+        )
     made = transport(
         "POST",
         f"{API}/repos/{owner}/{repo}/pulls",
@@ -227,7 +246,12 @@ def publish(
             f"pull request {number} does not hold the body that was sent, and it was left "
             f"as it is, because an edit is what records the difference for good"
         )
-    return {"number": number, "url": made.get("html_url", ""), "published": True}
+    return {
+        "number": number,
+        "url": made.get("html_url", ""),
+        "published": True,
+        "reason": "",
+    }
 
 
 def main(argv: list[str]) -> int:
@@ -257,10 +281,7 @@ def main(argv: list[str]) -> int:
         sys.stderr.write(f"publish: the call itself broke, so nothing is assumed, {broken}\n")
         return 1
     if not opened["published"]:
-        print(
-            f"publish: this branch already has pull request {opened['number']}, "
-            f"so nothing was published"
-        )
+        print(f"publish: nothing was published, {opened['reason']}")
         return 0
     print(f"publish: pull request {opened['number']} {opened['url']}")
     return 0
