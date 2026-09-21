@@ -253,6 +253,9 @@ def door_list_problems(
     on. So the omission a list is one name short of is a failing test rather than a planted
     import that nobody thought to write.
 
+    A row that carries nothing is that same omission written as an empty cell, and it fails
+    too. It is the state a reword leaves behind when a name moves from one row to another.
+
     A name that is both kinds is on the list of the first kind, which is why a row of the
     second kind is satisfied by either list.
 
@@ -290,6 +293,8 @@ def door_list_problems(
         for label, names in rows:
             if label not in named:
                 found.append(f"the table has a row for {label}, which the record does not name")
+            if not names:
+                found.append(f"the row for {label} carries no name, so no list answers for it")
             for name in names:
                 if name not in sys.stdlib_module_names:
                     found.append(f"the row for {label} names {name}, which is not a module")
@@ -683,6 +688,15 @@ def test_the_record_check_rejects_a_table_that_does_not_match_the_sentence(tmp_p
     assert door_list_problems(tmp_path, {"io", "socket"}, {"time"}, ()) == [
         "the record names the terminal, and the table has no row for it",
         "the table has a row for a socket, which the record does not name",
+    ]
+
+
+def test_the_record_check_rejects_a_row_that_carries_no_name(tmp_path):
+    """A name moved out of a row and the row it left behind is empty."""
+    table = PLANTED_TABLE.replace("| the terminal | `curses` |", "| the terminal |  |")
+    plant_the_door_records(tmp_path, PLANTED_DEFINITION, table)
+    assert door_list_problems(tmp_path, {"io"}, {"time"}, ()) == [
+        "the row for the terminal carries no name, so no list answers for it"
     ]
 
 

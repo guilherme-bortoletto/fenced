@@ -40,7 +40,7 @@ which holds its lists of doors to the record that says what a door is.
 
 ## Fifteen minute tour
 
-1. `tests/test_fences.py`. The point of the repository. Six rules, seven checks, and twenty six
+1. `tests/test_fences.py`. The point of the repository. Six rules, seven checks, and twenty seven
    tests that plant a violation and expect a refusal.
 2. `docs/adr/0001-architecture-rules-live-in-tests.md`. Why they are tests and not a config file.
 3. `scripts/gates.py`. The same rules on text, for the places a test cannot reach.

@@ -33,9 +33,9 @@ The two sentences are quoted here as record 0005 writes them.
 
 Each thing a sentence names has a row below, and the row carries the standard library names that
 reach it. `test_the_door_lists_carry_every_name_the_record_calls_a_door` reads the quotes, the rows
-and the lists, and it fails on five things. A quote record 0005 does not say. A thing a sentence
-names with no row. A row for something no sentence names. A name in a row that is not a standard
-library module. A name in a row that is on no list of doors.
+and the lists, and it fails on six things. A quote record 0005 does not say. A thing a sentence
+names with no row. A row for something no sentence names. A row that carries no name at all. A name
+in a row that is not a standard library module. A name in a row that is on no list of doors.
 
 | Reaches something the process does not hold | Names on `DOORS_TO_THE_OUTSIDE` |
 | --- | --- |
@@ -81,6 +81,12 @@ The first two tables are read one way. A list may carry a name no row names, and
 `signal` and `platform` are four of those. The sentences do not name what those reach, and record
 0005 says the list is generous where a domain module might plausibly go. The direction worth failing
 on is the other one, a thing the record calls a door with no name behind it on the list.
+
+A row that carries no name is that direction written as an empty cell. It is what a reword leaves
+behind when a name moves from one row to another and the row it left empties. The first version of
+this check read the names of a row and never asked how many there were, so an empty row passed and
+the record named the terminal with nothing answering for it. An empty row fails now, and
+`test_the_record_check_rejects_a_row_that_carries_no_name` plants one.
 
 A reword of either sentence fails the test until the quote is reworded with it. That is what quoting
 buys over pointing. Record 0006 was reworded once and a record can be, and what cannot happen
