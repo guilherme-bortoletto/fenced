@@ -5,6 +5,10 @@ reached the wire. A body that breaks a text rule must not be sent at all. A body
 came back changed must not be repaired, because the repair is the second version that
 the history of the body keeps for good. A branch that already has a pull request gets
 nothing at all, because the workflow that calls this runs on every push to the branch.
+A body that closes an issue the head branch does not name belongs to another run, and
+the text rules cannot tell, because that text was written to pass them. That one is not
+a refusal. It is the first push of every run, so it publishes nothing, says why and
+exits zero.
 
 The transport is a fake that records the calls, so nothing in this file reaches GitHub.
 """
@@ -82,8 +86,8 @@ def a_token(monkeypatch):
     monkeypatch.delenv("FENCED_TERMS_FILE", raising=False)
 
 
-def opened(transport, title=TITLE, body=BODY, terms=()):
-    return publish.publish("o", "r", "claude/issue-1", "main", title, body, list(terms), transport)
+def opened(transport, title=TITLE, body=BODY, terms=(), head="claude/issue-1"):
+    return publish.publish("o", "r", head, "main", title, body, list(terms), transport)
 
 
 def test_the_body_that_reaches_the_wire_is_the_body_that_was_written():
@@ -93,14 +97,24 @@ def test_the_body_that_reaches_the_wire_is_the_body_that_was_written():
     assert len(posted) == 1
     assert posted[0]["payload"]["body"] == BODY
     assert posted[0]["payload"]["title"] == TITLE
-    assert made == {"number": 7, "url": "https://github.com/o/r/pull/7", "published": True}
+    assert made == {
+        "number": 7,
+        "url": "https://github.com/o/r/pull/7",
+        "published": True,
+        "reason": "",
+    }
 
 
 def test_a_branch_that_already_has_a_pull_request_gets_nothing():
     """The workflow runs on every push to the branch. One of them opens the pull request."""
     fake = Fake(standing=[{"number": 4, "html_url": "https://github.com/o/r/pull/4"}])
     made = opened(fake)
-    assert made == {"number": 4, "url": "https://github.com/o/r/pull/4", "published": False}
+    assert made == {
+        "number": 4,
+        "url": "https://github.com/o/r/pull/4",
+        "published": False,
+        "reason": "this branch already has pull request 4",
+    }
     assert methods(fake) == []
 
 
@@ -117,6 +131,58 @@ def test_the_listing_asks_for_this_branch_and_reads_every_state():
     assert asked.startswith("https://api.github.com/repos/o/r/pulls?")
     assert "head=o%3Aclaude%2Fissue-1" in asked
     assert "state=all" in asked
+
+
+# The issue the body closes and the issue the head branch names. The two files live on
+# main, so a branch carries the text of the run before it until the run writes its own.
+
+
+def test_a_body_that_closes_the_issue_the_branch_names_is_sent():
+    fake = Fake()
+    made = opened(fake, body="Closes #31\n\n## What\n\nOne line.\n", head="claude/issue-31")
+    assert made["published"] is True
+    assert [call["method"] for call in fake.calls if call["method"] == "POST"] == ["POST"]
+
+
+def test_a_body_that_closes_another_issue_publishes_nothing_and_says_why():
+    """The first push of a run finds the body of the run before it, and it reads clean."""
+    fake = Fake()
+    made = opened(fake, body="Closes #23\n\n## What\n\nOne line.\n", head="claude/issue-25")
+    assert made["published"] is False
+    assert "names issue 25 and the body closes issue 23" in made["reason"]
+    assert fake.calls == []
+
+
+def test_a_body_that_opens_with_something_else_is_never_sent():
+    fake = Fake()
+    with pytest.raises(publish.Refused) as refused:
+        opened(fake, body="## What\n\nCloses #1\n")
+    assert "not with `Closes #N`" in str(refused.value)
+    assert fake.calls == []
+
+
+def test_an_empty_body_is_never_sent():
+    fake = Fake()
+    with pytest.raises(publish.Refused) as refused:
+        opened(fake, body="\n\n")
+    assert "not with `Closes #N`" in str(refused.value)
+    assert fake.calls == []
+
+
+def test_a_number_further_down_the_body_is_not_the_issue_it_closes():
+    """A body names other issues in its prose. Only the line it opens with is read."""
+    fake = Fake()
+    made = opened(fake, body="Closes #1\n\n## Why\n\nRecord 0008 and issue #23 say so.\n")
+    assert made["published"] is True
+
+
+def test_a_head_branch_that_names_no_issue_is_never_sent():
+    """The workflow fires on every `claude/` branch, and only `claude/issue-N` carries a number."""
+    fake = Fake()
+    with pytest.raises(publish.Refused) as refused:
+        opened(fake, head="claude/a-branch-of-its-own")
+    assert "does not name an issue" in str(refused.value)
+    assert fake.calls == []
 
 
 @pytest.mark.parametrize("line", APPENDED)
@@ -270,3 +336,95 @@ def test_a_workflow_that_runs_the_publisher_from_the_branch_is_refused():
 def test_a_workflow_that_never_checks_main_out_is_refused():
     planted = WORKFLOW.read_text(encoding="utf-8").replace(f"path: {RULES_PATH}", "path: rules")
     assert "does not check main out" in "\n".join(rules_from_the_branch(planted))
+
+
+# The publish step reads the check its head branch feeds. A step that hands the publisher
+# anything other than the branch that was pushed runs the publish with nothing to check.
+
+HEAD_ARGUMENT = re.compile(r"--head\s+(\S+)")
+PUSHED_BRANCH = "BRANCH: ${{ github.ref_name }}"
+
+
+def publish_without_the_check(text: str) -> list[str]:
+    """Every reason the publish step could run without the check on the issue number.
+
+    The check lives in the publisher and it reads the issue off the head it is given. A
+    step that names a head of its own, or reads one from anywhere but the branch that was
+    pushed, leaves the publisher comparing a body against a number nobody pushed.
+    """
+    found = []
+    lines = [line for line in text.splitlines() if not line.lstrip().startswith("#")]
+    step = "\n".join(lines)
+    heads = HEAD_ARGUMENT.findall(step)
+    if not heads:
+        found.append("the publish step hands the publisher no head branch")
+    for head in heads:
+        if head.strip('"') != "$BRANCH":
+            found.append(f"the publish step hands the publisher {head}")
+    if PUSHED_BRANCH not in step:
+        found.append("the publish step does not read the branch that was pushed")
+    return found
+
+
+def test_the_publish_step_hands_the_publisher_the_branch_that_was_pushed():
+    assert publish_without_the_check(WORKFLOW.read_text(encoding="utf-8")) == []
+
+
+def test_a_publish_step_that_names_a_head_of_its_own_is_refused():
+    planted = WORKFLOW.read_text(encoding="utf-8").replace(
+        '--head "$BRANCH"', '--head "claude/issue-1"'
+    )
+    assert "hands the publisher" in "\n".join(publish_without_the_check(planted))
+
+
+def test_a_publish_step_that_reads_no_branch_is_refused():
+    planted = WORKFLOW.read_text(encoding="utf-8").replace(PUSHED_BRANCH, "BRANCH: main")
+    assert "does not read the branch that was pushed" in "\n".join(
+        publish_without_the_check(planted)
+    )
+
+
+def test_a_publish_step_with_no_head_at_all_is_refused():
+    planted = WORKFLOW.read_text(encoding="utf-8").replace('--head "$BRANCH" \\\n', "")
+    assert "no head branch" in "\n".join(publish_without_the_check(planted))
+
+
+# What the workflow reads is the exit code. The ordinary case is the first push of a run,
+# where the branch carries the body of the run before it, and that push leaves the job
+# green. The two cases no ordinary push reaches stay red.
+
+
+def a_run(tmp_path, body, head="claude/issue-31"):
+    """One call to main over two files, with no transport, because none of these get that far."""
+    title = tmp_path / "title.md"
+    body_file = tmp_path / "body.md"
+    title.write_text(TITLE, encoding="utf-8")
+    body_file.write_text(body, encoding="utf-8")
+    return publish.main(
+        [
+            "--owner", "o",
+            "--repo", "r",
+            "--head", head,
+            "--title-file", str(title),
+            "--body-file", str(body_file),
+        ]
+    )
+
+
+def test_the_first_push_of_a_run_leaves_the_job_green(tmp_path, capsys):
+    """A branch cut from main carries the text of the run before it, on every run."""
+    code = a_run(tmp_path, "Closes #28\n\n## What\n\nThe run before this one.\n")
+    assert code == 0
+    assert "names issue 31 and the body closes issue 28" in capsys.readouterr().out
+
+
+def test_a_body_that_opens_with_something_else_turns_the_job_red(tmp_path, capsys):
+    code = a_run(tmp_path, "## What\n\nA body that forgot the line it opens with.\n")
+    assert code == 1
+    assert "not with `Closes #N`" in capsys.readouterr().err
+
+
+def test_a_head_branch_that_names_no_issue_turns_the_job_red(tmp_path, capsys):
+    code = a_run(tmp_path, BODY, head="claude/a-branch-of-its-own")
+    assert code == 1
+    assert "does not name an issue" in capsys.readouterr().err

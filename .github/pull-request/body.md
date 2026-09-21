@@ -1,62 +1,89 @@
-Closes #28
+Closes #31
 
 ## What
 
-The nine names the issue planted are refused now, and the lists that refuse them are held to the record that says what a door is.
+The publisher now reads one number twice. It reads `claude/issue-N` off the head branch it was
+given, and it reads `Closes #M` off the first line of the body. It refuses when the two differ,
+and it refuses before it asks GitHub anything, so a refusal leaves no call behind.
 
-Fifteen names joined `DOORS_TO_THE_OUTSIDE`. `curses`, `tty`, `termios`, `pty`, `readline` and `rlcompleter` reach the terminal, which the record names outright. `compileall`, `py_compile`, `zipapp` and `filecmp` write or read a file on disk. `syslog` reaches the log of the machine. `posix` and `nt` are the module `os` is, under the name the platform gives it, and `grp` and `pwd` read the user database beside it.
+It also refuses a body that does not open with `Closes #N` at all, and a head branch that names no
+issue. Reading nothing out of a body and publishing it anyway is the shape of this bug.
 
-Three names joined `SOURCES_OUTSIDE_THE_ARGUMENTS`. `concurrent` and `_thread` are a second thread of execution, which `threading` was already refused for. `sched` runs on a clock it reads itself unless it is handed another.
+Four tests read `.github/workflows/pull-request.yml` and fail when the publish step could run
+without the check, which is when it names a head of its own or reads one from anywhere but the
+branch that was pushed.
 
-The part meant to last is the check beside them. `docs/adr/0010-a-door-list-is-checked-against-the-record.md` quotes the two sentences of record 0005 and writes out, thing by thing, the standard library names that reach each one. `door_list_problems` in `tests/test_fences.py` reads the quotes back against record 0005, the rows against the quotes, and every name in a row against the list the table says it is on. It fails on six things.
-
-    a quote record 0005 does not say
-    a thing a sentence names with no row
-    a row for something no sentence names
-    a name in a row that is not a standard library module
-    a name in a row that is on no list of doors
-    a name on RUNTIME_DOORS that no row reaches, or a row that reaches what is not on it
-
-So the next omission is a row that disagrees with a list, which is a red suite, instead of a name somebody happened to plant.
-
-Record 0005 keeps its status and its decision. It gained one line pointing at 0010. The index carries 0010 and the README counts the checks and the planted tests again.
+`docs/adr/0011-a-body-names-the-issue-its-branch-names.md` records the decision and says what the
+check does not cover. `AGENTS.md` now says which push opens the pull request in the same words
+record 0008 uses.
 
 ## Why
 
-The issue is right that this is not the incompleteness record 0005 prices in. `threading` was refused and `concurrent` was not, and both are a second thread of execution. `select` was refused and `curses` was not, and the record names the terminal in the sentence that defines the list.
+The title and the body land on `main` with every pull request that carries them. They stay there
+until the next one lands, so a branch inherits the text of the run before it at the moment it is
+cut. `AGENTS.md` tells a run to push right after its first commit. The workflow runs on that push,
+finds the two files, and publishes.
 
-A list that refuses one name and passes another doing the same thing is a bug. Record 0005 says so itself and says it is closed by name. What it had no answer for is the next one, because a name can be added forever and the sentence that named it has no way to say it is still waiting.
+The text gate passes, because that text was written to pass it. The publisher reads the pull
+request back and gates the stored body, and that passes for the same reason. Nothing in the path
+could tell that the text belonged to another issue. Pull request 30 is what that looks like, a
+branch named `claude/issue-25` carrying a body that says `Closes #23`.
 
-Quoting the sentence into a record and reading it in a test is what gives the sentence a voice. The lists and the words that define them are one thing now, and they cannot drift apart quietly.
+The number is the one thing the two texts cannot share. The branch name carries it and the first
+line of the body carries it, and a body written for another run says the wrong one.
 
 ## Tests
 
-`python -m pytest` is green at 256 tests, up from 248. `python scripts/gates.py` is clean apart from the term rules, which is the correct verdict in a clone with no private list.
+`tests/test_publish.py` grows ten tests and the suite goes from 257 to 267.
 
-Eight of those tests are new.
+Six plant the publisher. A body that closes the issue the branch names, a body that closes another
+one, a body that opens with something else, a body with nothing in it, a number further down the
+body that is not read, and a head branch that names no issue. Each refusal asserts that the fake
+transport recorded no call at all.
 
-One plants each of the nine names from the issue inside `domain/` and asserts the exact line the fence reports, which is the report the issue asked for read back the other way. One runs the new check over this tree. Six plant a record and a list that disagree, one shape each. A name in a row that is on no list. A table whose rows do not match the sentence, in both directions at once. A quote the record does not say. A name in a row that is not a module at all. A runtime door no row reaches. A tree with neither record in it, which fails closed rather than passing on nothing.
+Four read the workflow as text. That the publish step hands the publisher the branch that was
+pushed, that a step naming a head of its own is refused, that a step reading no pushed branch is
+refused, and that a step with no head at all is refused.
 
-The planted violation test that walks both module lists covers the eighteen new names without a line written for them, because it reads the constants.
+`python -m pytest` and `python scripts/gates.py` ran before every commit and both were clean, apart
+from the term rules, which this clone has no list for.
 
 ## Decisions I made
 
-- The table lives in a new record and not inside 0005. The index says a record is not rewritten to match a later opinion. The decision of 0005 did not change, so it keeps its status and gains one line pointing forward.
-- The two sentences are copied into 0010 and not pointed at. A pointer cannot notice a reword. The test asserts the quote is a sentence record 0005 still says, so a reword fails the suite until the quote is reworded with it.
-- The first two tables are read one way. A name on a list with no row passes. `sys`, `importlib`, `signal` and `platform` reach things the two sentences never name, and record 0005 says the list is generous where a domain module might plausibly go. The direction worth failing on is a thing the record calls a door with no name behind it.
-- A name that is both kinds goes on the list of the first kind, because reaching outside the process is the larger claim and the fence reads that list first. `asyncio` and `multiprocessing` are the two. So a row of the second kind is satisfied by either list and a row of the first kind is not.
-- Eight names beyond the nine the issue planted. `posix` and `nt` are `os` reached under another name, which is the widest door on the list. `grp` and `pwd` read the user database. `filecmp` opens two files. `readline` and `rlcompleter` reach the terminal and a history file. `sched` reads a clock. Each one is a name the sentences already cover, and leaving them for the next issue would be leaving the same bug in place.
-- The rows carry the names whose claim is plain. `pickle` is on the list because loading one runs code, and no sentence of the record names that, so it has no row. A row is the record reading itself, and a stretched row is worse than none.
-- The README said eight planted tests and there were twenty six. The count is right again, and the fence paragraph says the first fence has a second function beside it.
+A new record rather than an edit to record 0008. The index says a record is not rewritten to match
+a later opinion. Record 0008 already said the pull request opens on the push that carries the body,
+so the two agree once `AGENTS.md` says it as plainly. The check is a decision of its own, and it
+carries its own account of what it does not cover.
+
+A head branch that names no issue is refused rather than published. The workflow fires on every
+`claude/` branch and only `claude/issue-N` carries a number. A branch of another shape leaves the
+check nothing to read, and a publish with nothing to check is the publish this stops.
+
+The number is read off the first line that has anything on it, so a body that opens with a blank
+line still reads. Nothing further down is read, because a body names other issues in its prose and
+a record it cites carries a number too.
+
+The check runs before the text gate. A body written for another run is not this run's text at all,
+and no text rule can tell.
+
+The workflow file is unchanged. Its publish step already hands the publisher the branch that was
+pushed through the environment, and the four new tests hold it there.
 
 ## Run notes
 
-> No dash used as punctuation and no semicolon, in Markdown or in a docstring. Short sentences. Describe what is there instead of selling it.
+The text rule of `AGENTS.md`: "No dash used as punctuation and no semicolon, in Markdown or in a
+docstring. Short sentences. Describe what is there instead of selling it."
 
-Four commits on `claude/issue-28`, pushed one at a time from the first. The first commit takes `.github/pull-request/title.md` and `.github/pull-request/body.md` off the branch, because issue 31 is open and a branch created from `main` carries the text of the run before it. The two files come back in this commit, which is the last one, so this push is the one that publishes.
+Three commits. The first removed `.github/pull-request/title.md` and
+`.github/pull-request/body.md`, which were the text of the run on issue 28, and pushed, so that
+this run published nothing of somebody else's while it worked. The second added the check and the
+ten tests. The third added record 0011, its index row and the wording in `AGENTS.md`. This commit
+writes the title and the body back, and the push that carries it is the one that opens this pull
+request.
 
-The machine this run works in had no `pytest`. The first commit was refused by the hook, which said the tests did not run rather than that they passed. Installing `pytest` is what fixed it. Nothing in the repository changed for it, and no gate was skipped or softened to get past it.
+What I did not do. Record 0008 was left as it stands. The workflow was left as it stands. The
+publisher on `main` is what runs for this branch, so the check lands with this pull request and
+guards the runs after it, not this one.
 
-The gates were quick. `python -m pytest` takes about 0.5 seconds at 256 tests. `python scripts/gates.py`, which is the suite and the text rules over every tracked file, takes about 0.8 seconds. `python scripts/gates.py --text` takes about 0.15 seconds. The hook ran the same gate before every commit and every push. No gate failed after `pytest` was there.
-
-What this run did not do. It did not go looking for doors nobody has named yet, because the rows are written by hand like the lists and a row that forgets a module is as silent as a list that forgot it. It did not give `sys`, `importlib`, `signal` or `platform` a row. It did not change the line the fence reports for a refused import, so every test that reads those lines still reads them. It did not touch `scripts/gates.py`, the workflow, or any pull request that is already open.
+The gates. `python scripts/gates.py` took about one second on each of the three runs, of which the
+suite is about six tenths of a second for 267 tests. Nothing was slow enough to time.
