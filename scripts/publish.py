@@ -17,10 +17,16 @@ here can tell the difference, and that is the point. The path out of that machin
 appends a line of its own after the gate has read the file, so the file travels to
 GitHub as a commit on a branch and the call is made from the other end.
 
+Before it posts it reads the issue number twice, once off the head branch name and once
+off the first line of the body, and refuses when the two differ. The two files live on
+`main`, so every branch inherits the text of the run before it at the moment it is cut,
+and the first push of a run finds a body written for another issue. That body passes the
+text gate, because it was written to pass it. The number is what tells them apart.
+
 Before it posts it asks GitHub whether the branch already has a pull request. A branch
 is pushed many times in one run and the workflow runs on each push. The push that
-carries the two files opens the pull request. Every push after it publishes nothing,
-which is what writing a body once means when the trigger repeats.
+carries this run's own body opens the pull request. Every push after it publishes
+nothing, which is what writing a body once means when the trigger repeats.
 
 The token arrives in GITHUB_TOKEN or in GH_TOKEN and is never written down here.
 
@@ -38,6 +44,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.parse
@@ -53,6 +60,11 @@ TOKEN_NAMES = ("GITHUB_TOKEN", "GH_TOKEN")
 TIMEOUT = 30
 API_VERSION = "2022-11-28"
 AGENT = "fenced"
+# The issue a head branch names and the issue a body closes. A run picks one issue, names
+# its branch after it and writes `Closes #N` on the first line of the body from the same
+# number. Two readings of one number, and they agree only on text written for this run.
+BRANCH_ISSUE = re.compile(r"^claude/issue-(\d+)$")
+BODY_ISSUE = re.compile(r"^Closes #(\d+)$")
 
 
 class Refused(Exception):
@@ -108,6 +120,37 @@ def gate(name: str, text: str, terms: list[str]) -> None:
         raise Refused("\n".join(found))
 
 
+def issue_of_the_branch(head: str) -> str:
+    """The issue number the head branch names, refusing a branch that names none.
+
+    A branch that names no issue leaves nothing to read the body against, and a publish
+    with nothing to check is the publish this check exists to stop.
+    """
+    named = BRANCH_ISSUE.match(head.strip())
+    if named is None:
+        raise Refused(
+            f"the head branch {head} does not name an issue, so there is nothing to read "
+            f"the body against and nothing was published"
+        )
+    return named.group(1)
+
+
+def issue_of_the_body(body: str) -> str:
+    """The issue number the body closes, read off its first line and nowhere else.
+
+    A body says `Closes #N` on the line it opens with. Reading further would find the
+    number of an issue the text merely mentions, which is not the issue it closes.
+    """
+    first = next((line.strip() for line in body.splitlines() if line.strip()), "")
+    closing = BODY_ISSUE.match(first)
+    if closing is None:
+        raise Refused(
+            f"the body opens with {first!r} and not with `Closes #N`, so which issue it "
+            f"closes cannot be read and nothing was published"
+        )
+    return closing.group(1)
+
+
 def as_sent(text: str) -> str:
     """A body with the line endings GitHub stores it with folded back, for comparing."""
     return text.replace("\r\n", "\n").replace("\r", "\n")
@@ -144,7 +187,17 @@ def publish(
 
     A branch that already has a pull request gets nothing. That is what the workflow
     needs to run on every push to a branch and still write one body.
+
+    The issue number runs first, because a body that names another issue is not this
+    run's text at all, and no text rule can tell. The gate then runs on what is left.
     """
+    named = issue_of_the_branch(head)
+    closing = issue_of_the_body(body)
+    if named != closing:
+        raise Refused(
+            f"the head branch names issue {named} and the body closes issue {closing}, so "
+            f"the body was written for another run and nothing was published"
+        )
     gate("the title", title, terms)
     gate("the body", body, terms)
     key = token()
