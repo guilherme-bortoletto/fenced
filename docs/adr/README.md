@@ -20,3 +20,4 @@ below fails the build, and so does a row below that points at a file that is not
 | [0009 A run says which rules it could not run](0009-a-run-says-which-rules-it-could-not-run.md) | accepted |
 | [0010 A door list is checked against the record that names the doors](0010-a-door-list-is-checked-against-the-record.md) | accepted |
 | [0011 A pull request body names the issue its branch names](0011-a-body-names-the-issue-its-branch-names.md) | accepted |
+| [0012 A run names a rule only where it has something to read](0012-a-run-names-a-rule-only-where-it-has-something-to-read.md) | accepted |
