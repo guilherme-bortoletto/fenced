@@ -65,6 +65,7 @@ MESSAGE_RULE = "the message rule"
 NO_LIST = "no list of private terms was pointed at, by --terms-file or FENCED_TERMS_FILE"
 TEXT_ONLY = "--text asks for the text rules and nothing else"
 NO_COMMIT = "this command writes no commit"
+NO_MESSAGE = "this command carries no message"
 # What a run of whitespace becomes in the two views a term is read in besides the text as
 # it stands. One space carries a term of two words over a line break. Nothing at all carries
 # a term of one word over a line break and over a space written inside it.
@@ -365,6 +366,16 @@ def writes_a_commit(command: str) -> bool:
     return bool(AUTHORING.search(command))
 
 
+def carries_a_message(command: str) -> bool:
+    """Whether this command carries a message, which is what the message rule reads.
+
+    A run asks this before it runs that rule and again before it names it, so the two
+    answers are the same answer. A message an editor asks for, and a message read out of a
+    file, are both a message the command does not carry, so the rule has nothing to read.
+    """
+    return bool(MESSAGE.search(command))
+
+
 def identity_problems(command: str, root: Path) -> list[str]:
     """Addresses a commit command would write that are not a GitHub noreply address.
 
@@ -401,6 +412,8 @@ def identity_problems(command: str, root: Path) -> list[str]:
 
 def message_problems(command: str) -> list[str]:
     """Attribution in the message of a git command, which is text no file ever holds."""
+    if not carries_a_message(command):
+        return []
     if ATTRIBUTION.search(" ".join(MESSAGE.findall(command))):
         return ["this message carries attribution, which this repository never uses"]
     return []
@@ -450,10 +463,12 @@ def run_rules(
     What a skipped rule must never be is silent, because a run that says clean over a
     rule it never ran reads as a run where every rule passed.
 
-    The two rules that read a command are named only by a run that has one. A hook has one,
-    so it names both, and it names the identity rule as skipped when the command moves
-    commits rather than writing one. A run with no command is not about a commit at all, so
-    neither rule is a rule it skipped and it names neither. That decision is
+    The two rules that read a command are named only by a run that has one, and then only
+    where the thing they read is in it. A command that moves commits rather than writing one
+    gives the identity rule nothing to read. A command that carries no message gives the
+    message rule nothing to read. Each is named as skipped with its own reason. A run with no
+    command at all is not about a commit, so neither rule is a rule it skipped and it names
+    neither. That decision is
     docs/adr/0012-a-run-names-a-rule-only-where-it-has-something-to-read.md
     """
     found: list[str] = []
@@ -477,8 +492,11 @@ def run_rules(
         ran.append(IDENTITY_RULE)
     else:
         skipped.append((IDENTITY_RULE, NO_COMMIT))
-    found += message_problems(command)
-    ran.append(MESSAGE_RULE)
+    if carries_a_message(command):
+        found += message_problems(command)
+        ran.append(MESSAGE_RULE)
+    else:
+        skipped.append((MESSAGE_RULE, NO_MESSAGE))
     return found, ran, skipped
 
 

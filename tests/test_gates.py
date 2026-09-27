@@ -395,6 +395,49 @@ def test_the_hook_leaves_out_the_identity_rule_when_the_command_writes_no_commit
     assert gates.IDENTITY_RULE in written.splitlines()[-1]
 
 
+def test_the_hook_leaves_out_the_message_rule_when_the_command_carries_no_message(
+    monkeypatch, capsys
+):
+    """A push carries no message, so the rule that reads one has nothing to read.
+
+    The rule ran on a push once, read nothing, returned nothing, and the run named it. That
+    is a name with no reading behind it, which is the one thing the record says a run does
+    not write.
+    """
+    code, called, written = hook_over(monkeypatch, capsys, "git push -u origin a-branch")
+    assert code == 0, written
+    assert "message_problems" not in called
+    assert named_rules(written) == {RULE_OF[name] for name in called}
+    assert f"gates: did not run {gates.MESSAGE_RULE}, because {gates.NO_MESSAGE}" in written
+    assert gates.MESSAGE_RULE in written.splitlines()[-1]
+
+
+def test_the_hook_says_it_read_no_message_when_an_editor_is_asked_for_one(monkeypatch, capsys):
+    """A command with no message on it is answered by an editor, and no gate reads that.
+
+    This is the case the accounting owes a reader most. The identity rule has a commit in
+    front of it and runs. The message rule is handed nothing, and saying so is how a reader
+    finds out that the text going into this commit was never read.
+    """
+    code, called, written = hook_over(monkeypatch, capsys, f"git -c user.email={NOREPLY} commit")
+    assert code == 0, written
+    assert "identity_problems" in called
+    assert "message_problems" not in called
+    assert named_rules(written) == {RULE_OF[name] for name in called}
+    assert gates.IDENTITY_RULE in named_rules(written)
+    assert f"gates: did not run {gates.MESSAGE_RULE}, because {gates.NO_MESSAGE}" in written
+
+
+def test_a_command_that_carries_a_message_names_the_rule_that_read_it(monkeypatch):
+    """The other side of the same rule. A message is there, so the rule is one the run made."""
+    watched(monkeypatch)
+    _, ran, skipped = gates.run_rules(
+        [], [], ROOT, command=f"git -c user.email={NOREPLY} commit -m 'a step'"
+    )
+    assert gates.MESSAGE_RULE in ran
+    assert gates.MESSAGE_RULE not in [name for name, _ in skipped]
+
+
 def test_a_run_with_a_list_and_a_run_without_one_do_not_say_the_same_thing(tmp_path):
     """The whole route twice, reading the difference in what a passing run says.
 
