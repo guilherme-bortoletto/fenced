@@ -1,1 +1,1 @@
-gates: the hook says it ran two rules and it ran four
+docs: the readme describes the fences and nothing checks the description

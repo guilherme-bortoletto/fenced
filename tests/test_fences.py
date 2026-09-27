@@ -3,13 +3,15 @@
 Each fence is a plain function that returns the list of things it found wrong,
 plus a test that runs it on this tree and expects that list to be empty. The first
 fence has a second function beside it, which holds its lists of doors to the record
-that says what a door is.
+that says what a door is. One more check reads the README back against this file, because
+a table of the fences that nothing reads is a table that rots.
 
 They are hand written on purpose. A reader should see the rule and the test that
 enforces it on one screen. When a project outgrows this, import-linter,
 pytest-archon and tach do the same job with real machinery.
 
-The last tests plant a violation and expect the fence to reject it.
+The last tests plant a tree, and each one carries a mark saying which kind it is.
+`plants` is a tree a check has to refuse, and `admits` is one it has to accept.
 """
 
 from __future__ import annotations
@@ -20,6 +22,8 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -139,6 +143,7 @@ def imported_names(root: Path, path: Path, tree: ast.AST) -> list[str]:
 
 
 # Fence 1. Business rules stay testable offline.
+# The row in the README: `domain/` and `ports/` answer from their arguments and nothing else
 
 
 def impure_imports(root: Path) -> list[str]:
@@ -319,6 +324,7 @@ def test_the_door_lists_carry_every_name_the_record_calls_a_door():
 
 
 # Fence 2. Changing the model must not mean starting over.
+# The row in the README: the name of a model provider appears in one adapter and nowhere else
 
 
 def network_names_outside_the_adapter(root: Path) -> list[str]:
@@ -351,6 +357,7 @@ def test_only_one_adapter_knows_which_model_answers():
 
 
 # Fence 3. A write keeps its plan, its journal and its undo.
+# The row in the README: nothing persists a record outside `writes/`
 
 
 def writes_outside_the_writes_package(root: Path) -> list[str]:
@@ -387,6 +394,7 @@ def test_nothing_persists_a_record_outside_the_writes_package():
 
 
 # Fence 4. The prompt must not carry what the domain owns.
+# The row in the README: a prompt carries no price, product or person
 
 
 def domain_data_in_prompts(root: Path) -> list[str]:
@@ -430,6 +438,7 @@ def test_the_prompt_never_carries_a_price_a_product_or_a_seller():
 
 
 # Fence 5. A decision stays decided.
+# The row in the README: every decision record has a status, a date and a line in the index
 
 
 def adr_problems(root: Path) -> list[str]:
@@ -459,6 +468,7 @@ def test_every_decision_record_has_a_status_a_date_and_an_index_line():
 
 
 # Fence 6. Nothing shaped like a credential ever enters the tree.
+# The row in the README: nothing shaped like a credential is in the tree
 
 SECRET_PATTERNS = {
     "a model provider key": r"sk-(?:[A-Za-z0-9]+-)*[A-Za-z0-9]{16,}",
@@ -504,6 +514,247 @@ def test_no_secret_lives_in_this_tree():
     assert secrets_in_the_tree(ROOT) == []
 
 
+# The README describes the fences, and the description is read back.
+
+README = "README.md"
+FENCE_FILE = "tests/test_fences.py"
+FENCE_HEADING = re.compile(r"^# Fence (\d+)\.")
+QUOTED_ROW = "# The row in the README: "
+RULE_HEADER = "Rule"
+PLANTING_MARKS = ("plants", "admits")
+# A call a test asserts on, as the name of the call and whether the assertion says the
+# check refused the tree the test planted.
+ASSERTION = tuple[str, bool]
+# A number as the README writes one, which is words with a space and no hyphen.
+UNITS = (
+    "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
+    "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen",
+    "eighteen", "nineteen",
+)
+TENS = ("twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety")
+
+
+def spelled(number: int) -> str:
+    """A number under a hundred as words."""
+    if number < 20:
+        return UNITS[number]
+    ten, unit = divmod(number, 10)
+    return TENS[ten - 2] + (f" {UNITS[unit]}" if unit else "")
+
+
+def counted(text: str, phrase: str) -> str | None:
+    """The number the text writes in front of a phrase, and None where it writes none."""
+    words = sorted((spelled(number) for number in range(100)), key=len, reverse=True)
+    found = re.search(rf"\b({'|'.join(words)}) {re.escape(phrase)}", text)
+    return found.group(1) if found else None
+
+
+def rule_cells(text: str) -> list[str]:
+    """The rule of every row of the Markdown table of three columns that starts with one.
+
+    The rule is the first cell with its backticks taken off, the table ends at the first
+    line that is not a row of three cells, and the rule characters under the header are not
+    a row.
+    """
+    rows = []
+    inside = False
+    for line in text.splitlines():
+        cells = [cell.replace("`", "").strip() for cell in line.strip().strip("|").split("|")]
+        if not line.strip().startswith("|") or len(cells) != 3:
+            if inside:
+                break
+            continue
+        if not inside:
+            inside = cells[0] == RULE_HEADER
+        elif not set(cells[0]) <= set("-: "):
+            rows.append(flat(cells[0]).lower())
+    return rows
+
+
+def fences_in_the_file(text: str) -> list[tuple[str, str]]:
+    """Each fence of the fence file, as the number in its heading and the row it quotes.
+
+    The line under the heading carries the rule of its row in the README. A fence whose next
+    line is not that one quotes nothing, which is the state a new fence starts in.
+    """
+    lines = text.splitlines()
+    found = []
+    for number, line in enumerate(lines):
+        heading = FENCE_HEADING.match(line)
+        if not heading:
+            continue
+        below = lines[number + 1] if number + 1 < len(lines) else ""
+        quoted = below[len(QUOTED_ROW):] if below.startswith(QUOTED_ROW) else ""
+        found.append((heading.group(1), flat(quoted.replace("`", "")).lower()))
+    return found
+
+
+def checks_in_the_file(tree: ast.AST) -> list[str]:
+    """The name of every function a test asserts returns an empty list.
+
+    That is what a check is here. A helper that happens to return a list of strings is not
+    one, which is why the name is read off the assertion and not off an annotation.
+    """
+    names = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assert) or not isinstance(node.test, ast.Compare):
+            continue
+        compared = node.test
+        if not isinstance(compared.left, ast.Call):
+            continue
+        if not isinstance(compared.left.func, ast.Name) or len(compared.ops) != 1:
+            continue
+        empty = isinstance(compared.comparators[0], ast.List) and not compared.comparators[0].elts
+        if isinstance(compared.ops[0], ast.Eq) and empty:
+            if compared.left.func.id not in names:
+                names.append(compared.left.func.id)
+    return names
+
+
+def asserted_checks(node: ast.AST) -> list[ASSERTION]:
+    """Every call a test asserts on, and what each assertion says the call returned.
+
+    `== []` says the check accepted the tree the test planted. A list with something in it,
+    `!= []`, and the call on its own all say the check refused it. This is the reading
+    `checks_in_the_file` makes of a green assertion carried one step further, and it is what a
+    mark is read back against, because a mark on its own is only what somebody typed.
+    """
+    found = []
+    for inner in ast.walk(node):
+        if not isinstance(inner, ast.Assert):
+            continue
+        asserted = inner.test
+        if isinstance(asserted, ast.Call) and isinstance(asserted.func, ast.Name):
+            found.append((asserted.func.id, True))
+            continue
+        if not isinstance(asserted, ast.Compare) or len(asserted.ops) != 1:
+            continue
+        called = asserted.left
+        if not isinstance(called, ast.Call) or not isinstance(called.func, ast.Name):
+            continue
+        against = asserted.comparators[0]
+        if not isinstance(against, ast.List):
+            continue
+        if isinstance(asserted.ops[0], ast.Eq):
+            found.append((called.func.id, bool(against.elts)))
+        elif isinstance(asserted.ops[0], ast.NotEq) and not against.elts:
+            found.append((called.func.id, True))
+    return found
+
+
+def every_test_in_the_file(tree: ast.AST) -> list[tuple[str, list[str], bool, list[ASSERTION]]]:
+    """Every test of the file, as its name, its marks, whether it plants and what it asserts."""
+    found = []
+    for node in tree.body:
+        if not isinstance(node, ast.FunctionDef) or not node.name.startswith("test_"):
+            continue
+        marks = [
+            mark
+            for decorator in node.decorator_list
+            for mark in PLANTING_MARKS
+            if ast.unparse(decorator) == f"pytest.mark.{mark}"
+        ]
+        plants = any(argument.arg == "tmp_path" for argument in node.args.args)
+        found.append((node.name, marks, plants, asserted_checks(node)))
+    return found
+
+
+def readme_problems(root: Path) -> list[str]:
+    """Where the README and the file it describes disagree.
+
+    The README carries a table of the fences and counts what the file holds. Each fence
+    quotes the rule of its row, so a row with no fence and a fence with no row are both a
+    failing test. A check no test ever planted a tree for is one too, because the README says
+    every fence has been watched refuse something.
+
+    A test that takes `tmp_path` builds a tree, and the mark on it says whether the check has
+    to refuse that tree or accept it. The parameter is what makes a missing mark loud and the
+    mark is what a count is read off, because the parameter says nothing about what was
+    planted and a count built on it is right by accident.
+
+    The mark is then read back against what the test asserts. A mark is a word somebody typed,
+    so a count built on it alone is right by accident too, in the politer way. `plants` has to
+    assert a check refused the tree and `admits` has to assert one accepted it, and a check is
+    watched refuse something only where a test marked `plants` asserts that it did.
+    """
+    absent = [
+        f"{name} is not here, so the description is checked against nothing"
+        for name in (README, FENCE_FILE)
+        if not (root / name).is_file()
+    ]
+    if absent:
+        return absent
+    described = (root / README).read_text(encoding="utf-8")
+    written = (root / FENCE_FILE).read_text(encoding="utf-8")
+    rows = rule_cells(described)
+    fences = fences_in_the_file(written)
+    quoted = [rule for _, rule in fences]
+    tree = ast.parse(written)
+    checks = checks_in_the_file(tree)
+    tests = every_test_in_the_file(tree)
+    found = [
+        f"the readme has a row for {rule}, and the file has no fence for it"
+        for rule in rows
+        if rule not in quoted
+    ]
+    for number, rule in fences:
+        if not rule:
+            found.append(f"fence {number} quotes no row of the readme")
+        elif rule not in rows:
+            found.append(f"fence {number} quotes {rule}, which the readme has no row for")
+        elif quoted.count(rule) > 1:
+            found.append(f"fence {number} quotes a row another fence quotes, {rule}")
+    for name, marks, plants, asserted in tests:
+        if plants and not marks:
+            found.append(f"{name} plants a tree and no mark says which kind it is")
+        if len(marks) > 1:
+            found.append(f"{name} carries both marks, and a planted tree is one or the other")
+        if marks and not plants:
+            found.append(f"{name} is marked {marks[0]} and plants nothing")
+        if not plants or len(marks) != 1:
+            continue
+        said = {says_refused for _, says_refused in asserted}
+        if marks == ["plants"] and True not in said:
+            found.append(f"{name} is marked plants and asserts no check refused the tree")
+        elif marks == ["admits"] and True in said:
+            found.append(f"{name} is marked admits and asserts a check refused the tree")
+        elif marks == ["admits"] and False not in said:
+            found.append(f"{name} is marked admits and asserts no check accepted the tree")
+    refused = {
+        call
+        for _, marks, _, asserted in tests
+        if "plants" in marks
+        for call, says_refused in asserted
+        if says_refused
+    }
+    found += [
+        f"{check} has no test that plants a tree for it to refuse"
+        for check in checks
+        if check not in refused
+    ]
+    marked = {mark: sum(1 for _, marks, _, _ in tests if mark in marks) for mark in PLANTING_MARKS}
+    held = (
+        ("rules", len(fences)),
+        ("checks", len(checks)),
+        ("tests that plant a tree a check has to refuse", marked["plants"]),
+        ("tests that plant a tree it has to accept", marked["admits"]),
+    )
+    prose = flat(described).lower()
+    for phrase, count in held:
+        said = counted(prose, phrase)
+        if phrase not in prose:
+            found.append(f"the readme does not say {phrase}, so no count of it is read back")
+        elif said is None:
+            found.append(f"the readme writes no number in front of {phrase}")
+        elif said != spelled(count):
+            found.append(f"the readme counts {said} {phrase}, and the file holds {spelled(count)}")
+    return found
+
+
+def test_the_readme_describes_the_fences_the_file_carries():
+    assert readme_problems(ROOT) == []
+
+
 # A fence whose folder is absent passes on nothing, so the shape is a rule of its own.
 
 
@@ -512,6 +763,7 @@ def test_the_tree_has_the_shape_the_fences_assume():
     assert [p for p in wanted if not (ROOT / p).is_dir()] == []
 
 
+@pytest.mark.plants
 def test_the_import_fence_rejects_a_planted_import(tmp_path):
     planted = tmp_path / "src" / "fenced" / "domain"
     planted.mkdir(parents=True)
@@ -519,6 +771,7 @@ def test_the_import_fence_rejects_a_planted_import(tmp_path):
     assert impure_imports(tmp_path) == ["src/fenced/domain/lead.py imports requests"]
 
 
+@pytest.mark.plants
 def test_the_import_fence_rejects_a_relative_escape_and_a_standard_library_door(tmp_path):
     planted = tmp_path / "src" / "fenced" / "domain"
     planted.mkdir(parents=True)
@@ -531,6 +784,7 @@ def test_the_import_fence_rejects_a_relative_escape_and_a_standard_library_door(
     ]
 
 
+@pytest.mark.admits
 def test_the_import_fence_reads_a_relative_import_in_a_package_init(tmp_path):
     package = tmp_path / "src" / "fenced" / "domain"
     package.mkdir(parents=True)
@@ -541,6 +795,7 @@ def test_the_import_fence_reads_a_relative_import_in_a_package_init(tmp_path):
     assert impure_imports(tmp_path) == []
 
 
+@pytest.mark.plants
 def test_the_import_fence_rejects_an_import_written_so_it_cannot_be_seen(tmp_path):
     planted = tmp_path / "src" / "fenced" / "ports"
     planted.mkdir(parents=True)
@@ -553,6 +808,7 @@ def test_the_import_fence_rejects_an_import_written_so_it_cannot_be_seen(tmp_pat
     ]
 
 
+@pytest.mark.plants
 def test_the_import_fence_rejects_reaching_anything_without_an_import(tmp_path):
     planted = tmp_path / "src" / "fenced" / "domain"
     planted.mkdir(parents=True)
@@ -565,6 +821,7 @@ def test_the_import_fence_rejects_reaching_anything_without_an_import(tmp_path):
     ]
 
 
+@pytest.mark.plants
 def test_the_import_fence_rejects_a_bare_open_in_both_pure_packages(tmp_path):
     for package in PURE_PACKAGES:
         planted = tmp_path / "src" / "fenced" / package
@@ -578,6 +835,7 @@ def test_the_import_fence_rejects_a_bare_open_in_both_pure_packages(tmp_path):
         planted.joinpath("reader.py").unlink()
 
 
+@pytest.mark.plants
 def test_the_import_fence_rejects_a_clock_and_a_source_of_randomness(tmp_path):
     planted = tmp_path / "src" / "fenced" / "domain"
     planted.mkdir(parents=True)
@@ -591,6 +849,7 @@ def test_the_import_fence_rejects_a_clock_and_a_source_of_randomness(tmp_path):
     ]
 
 
+@pytest.mark.plants
 def test_the_import_fence_rejects_every_way_to_import_a_module_by_name(tmp_path):
     planted = tmp_path / "src" / "fenced" / "domain"
     planted.mkdir(parents=True)
@@ -601,6 +860,7 @@ def test_the_import_fence_rejects_every_way_to_import_a_module_by_name(tmp_path)
         ], f"{name} slipped through"
 
 
+@pytest.mark.plants
 def test_the_import_fence_rejects_reading_the_install_layout(tmp_path):
     planted = tmp_path / "src" / "fenced" / "ports"
     planted.mkdir(parents=True)
@@ -611,6 +871,7 @@ def test_the_import_fence_rejects_reading_the_install_layout(tmp_path):
         ], f"{name} slipped through"
 
 
+@pytest.mark.plants
 def test_the_import_fence_rejects_the_terminal_and_a_second_thread_of_execution(tmp_path):
     """The names issue 28 planted, which the record calls doors and the list did not carry."""
     planted = tmp_path / "src" / "fenced" / "domain"
@@ -625,6 +886,7 @@ def test_the_import_fence_rejects_the_terminal_and_a_second_thread_of_execution(
         ], f"{name} slipped through"
 
 
+@pytest.mark.plants
 def test_the_import_fence_rejects_every_module_it_calls_a_door(tmp_path):
     planted = tmp_path / "src" / "fenced" / "domain"
     planted.mkdir(parents=True)
@@ -639,6 +901,7 @@ def test_the_import_fence_rejects_every_module_it_calls_a_door(tmp_path):
         ], f"{name} slipped through"
 
 
+@pytest.mark.plants
 def test_the_import_fence_rejects_every_name_it_calls_a_runtime_door(tmp_path):
     planted = tmp_path / "src" / "fenced" / "ports"
     planted.mkdir(parents=True)
@@ -675,6 +938,7 @@ def plant_the_door_records(root: Path, definition: str, table: str) -> None:
     (root / DOOR_TABLE).write_text(table, encoding="utf-8")
 
 
+@pytest.mark.plants
 def test_the_record_check_rejects_a_door_the_list_does_not_carry(tmp_path):
     plant_the_door_records(tmp_path, PLANTED_DEFINITION, PLANTED_TABLE)
     assert door_list_problems(tmp_path, {"io"}, {"time"}, ()) == [
@@ -682,6 +946,7 @@ def test_the_record_check_rejects_a_door_the_list_does_not_carry(tmp_path):
     ]
 
 
+@pytest.mark.plants
 def test_the_record_check_rejects_a_table_that_does_not_match_the_sentence(tmp_path):
     table = PLANTED_TABLE.replace("| the terminal | `curses` |", "| a socket | `socket` |")
     plant_the_door_records(tmp_path, PLANTED_DEFINITION, table)
@@ -691,6 +956,7 @@ def test_the_record_check_rejects_a_table_that_does_not_match_the_sentence(tmp_p
     ]
 
 
+@pytest.mark.plants
 def test_the_record_check_rejects_a_row_that_carries_no_name(tmp_path):
     """A name moved out of a row and the row it left behind is empty."""
     table = PLANTED_TABLE.replace("| the terminal | `curses` |", "| the terminal |  |")
@@ -700,6 +966,7 @@ def test_the_record_check_rejects_a_row_that_carries_no_name(tmp_path):
     ]
 
 
+@pytest.mark.plants
 def test_the_record_check_rejects_a_quote_the_record_does_not_say(tmp_path):
     reworded = PLANTED_DEFINITION.replace("the terminal", "a socket")
     plant_the_door_records(tmp_path, reworded, PLANTED_TABLE)
@@ -708,6 +975,7 @@ def test_the_record_check_rejects_a_quote_the_record_does_not_say(tmp_path):
     ]
 
 
+@pytest.mark.plants
 def test_the_record_check_rejects_a_name_in_a_row_that_is_not_a_module(tmp_path):
     table = PLANTED_TABLE.replace("`curses`", "`curses`, `curtains`")
     plant_the_door_records(tmp_path, PLANTED_DEFINITION, table)
@@ -716,6 +984,7 @@ def test_the_record_check_rejects_a_name_in_a_row_that_is_not_a_module(tmp_path)
     ]
 
 
+@pytest.mark.plants
 def test_the_record_check_rejects_a_runtime_door_no_row_reaches(tmp_path):
     plant_the_door_records(tmp_path, PLANTED_DEFINITION, PLANTED_TABLE)
     assert door_list_problems(tmp_path, {"io", "curses"}, {"time"}, ("eval",)) == [
@@ -723,6 +992,7 @@ def test_the_record_check_rejects_a_runtime_door_no_row_reaches(tmp_path):
     ]
 
 
+@pytest.mark.plants
 def test_the_record_check_refuses_a_tree_with_no_record_in_it(tmp_path):
     assert door_list_problems(tmp_path, {"io"}, {"time"}, ()) == [
         f"{DOOR_RECORD} is not here, so the lists are checked against nothing",
@@ -730,6 +1000,7 @@ def test_the_record_check_refuses_a_tree_with_no_record_in_it(tmp_path):
     ]
 
 
+@pytest.mark.admits
 def test_the_import_fence_still_admits_the_arithmetic_the_domain_is_made_of(tmp_path):
     planted = tmp_path / "src" / "fenced" / "domain"
     planted.mkdir(parents=True)
@@ -741,6 +1012,7 @@ def test_the_import_fence_still_admits_the_arithmetic_the_domain_is_made_of(tmp_
     assert impure_imports(tmp_path) == []
 
 
+@pytest.mark.plants
 def test_a_package_whose_name_merely_starts_the_same_is_not_inside_it(tmp_path):
     planted = tmp_path / "src" / "fenced" / "apple"
     planted.mkdir(parents=True)
@@ -750,6 +1022,7 @@ def test_a_package_whose_name_merely_starts_the_same_is_not_inside_it(tmp_path):
     ]
 
 
+@pytest.mark.plants
 def test_the_write_fence_rejects_a_record_store_reached_by_another_name(tmp_path):
     allowed = tmp_path / "src" / "fenced" / "app"
     allowed.mkdir(parents=True)
@@ -764,6 +1037,7 @@ def test_the_write_fence_rejects_a_record_store_reached_by_another_name(tmp_path
     ]
 
 
+@pytest.mark.plants
 def test_the_prompt_fence_rejects_a_prompt_built_at_run_time(tmp_path):
     planted = tmp_path / "src" / "fenced" / "adapters"
     planted.mkdir(parents=True)
@@ -775,6 +1049,7 @@ def test_the_prompt_fence_rejects_a_prompt_built_at_run_time(tmp_path):
     ]
 
 
+@pytest.mark.plants
 def test_the_secret_fence_rejects_assembled_credentials(tmp_path):
     # Assembled at run time on purpose. A real looking literal in this file would
     # be stopped by push protection before anyone could read the test.
@@ -784,11 +1059,13 @@ def test_the_secret_fence_rejects_assembled_credentials(tmp_path):
         assert secrets_in_the_tree(tmp_path), f"{shape[:6]} slipped through"
 
 
+@pytest.mark.plants
 def test_the_secret_fence_rejects_a_versioned_environment_file(tmp_path):
     tmp_path.joinpath(".env").write_text("FENCED_LLM_API_KEY=\n", encoding="utf-8")
     assert secrets_in_the_tree(tmp_path) == [".env is under version control"]
 
 
+@pytest.mark.plants
 def test_the_provider_fence_rejects_a_name_outside_the_adapter(tmp_path):
     planted = tmp_path / "src" / "fenced" / "domain"
     planted.mkdir(parents=True)
@@ -798,6 +1075,7 @@ def test_the_provider_fence_rejects_a_name_outside_the_adapter(tmp_path):
     ]
 
 
+@pytest.mark.plants
 def test_the_decision_fence_rejects_a_missing_status_and_a_broken_index(tmp_path):
     folder = tmp_path / "docs" / "adr"
     folder.mkdir(parents=True)
@@ -811,4 +1089,211 @@ def test_the_decision_fence_rejects_a_missing_status_and_a_broken_index(tmp_path
     assert adr_problems(tmp_path) == [
         "0001-a-decision.md has no status",
         "the index points at 0002-gone.md, which is not here",
+    ]
+
+
+PLANTED_README = (
+    "| Rule | How the test checks it | What breaks without it |\n"
+    "|---|---|---|\n"
+    "| nothing reaches the network | reads the imports | a rule that needs a socket |\n"
+    "| every record carries a date | reads the folder | a decision nobody can place |\n"
+    "\n"
+    "Two rules, two checks, two tests that plant a tree a check has to refuse, and zero\n"
+    "tests that plant a tree it has to accept.\n"
+)
+PLANTED_FENCES = (
+    "import pytest\n\n\n"
+    "# Fence 1. Nothing reaches the network.\n"
+    "# The row in the README: nothing reaches the network\n\n\n"
+    "def network_problems(root):\n"
+    "    return []\n\n\n"
+    "def test_nothing_reaches_the_network():\n"
+    "    assert network_problems(ROOT) == []\n\n\n"
+    "@pytest.mark.plants\n"
+    "def test_the_network_fence_rejects_a_socket(tmp_path):\n"
+    "    assert network_problems(tmp_path) == ['a socket']\n\n\n"
+    "# Fence 2. Every record carries a date.\n"
+    "# The row in the README: every record carries a date\n\n\n"
+    "def record_problems(root):\n"
+    "    return []\n\n\n"
+    "def test_every_record_carries_a_date():\n"
+    "    assert record_problems(ROOT) == []\n\n\n"
+    "@pytest.mark.plants\n"
+    "def test_the_record_fence_rejects_a_record_with_no_date(tmp_path):\n"
+    "    assert record_problems(tmp_path) == ['no date']\n"
+)
+
+
+def plant_the_description(root: Path, described: str, written: str) -> None:
+    """A README and a fence file shaped like this pair, for a check that reads both."""
+    (root / FENCE_FILE).parent.mkdir(parents=True, exist_ok=True)
+    (root / README).write_text(described, encoding="utf-8")
+    (root / FENCE_FILE).write_text(written, encoding="utf-8")
+
+
+@pytest.mark.plants
+def test_the_description_check_rejects_a_row_no_fence_answers_for(tmp_path):
+    row = "| every record carries a date | reads the folder | a decision nobody can place |\n"
+    extra = "| a prompt carries no price | reads the constants | a model that knows the price |\n"
+    described = PLANTED_README.replace(row, row + extra).replace("Two rules", "Three rules")
+    plant_the_description(tmp_path, described, PLANTED_FENCES)
+    assert readme_problems(tmp_path) == [
+        "the readme has a row for a prompt carries no price, and the file has no fence for it",
+        "the readme counts three rules, and the file holds two",
+    ]
+
+
+@pytest.mark.plants
+def test_the_description_check_rejects_a_fence_no_row_answers_for(tmp_path):
+    written = PLANTED_FENCES + (
+        "\n\n# Fence 3. A write keeps its journal.\n"
+        "# The row in the README: a write keeps its journal\n"
+    )
+    plant_the_description(tmp_path, PLANTED_README, written)
+    assert readme_problems(tmp_path) == [
+        "fence 3 quotes a write keeps its journal, which the readme has no row for",
+        "the readme counts two rules, and the file holds three",
+    ]
+
+
+@pytest.mark.plants
+def test_the_description_check_rejects_a_fence_that_quotes_nothing(tmp_path):
+    written = PLANTED_FENCES.replace(
+        "# The row in the README: nothing reaches the network\n", ""
+    )
+    plant_the_description(tmp_path, PLANTED_README, written)
+    assert readme_problems(tmp_path) == [
+        "the readme has a row for nothing reaches the network, "
+        "and the file has no fence for it",
+        "fence 1 quotes no row of the readme",
+    ]
+
+
+@pytest.mark.plants
+def test_the_description_check_rejects_two_fences_quoting_one_row(tmp_path):
+    written = PLANTED_FENCES.replace("every record carries a date", "nothing reaches the network")
+    described = PLANTED_README.replace(
+        "| every record carries a date | reads the folder | a decision nobody can place |\n", ""
+    ).replace("Two rules", "One rules")
+    plant_the_description(tmp_path, described, written)
+    assert readme_problems(tmp_path) == [
+        "fence 1 quotes a row another fence quotes, nothing reaches the network",
+        "fence 2 quotes a row another fence quotes, nothing reaches the network",
+        "the readme counts one rules, and the file holds two",
+    ]
+
+
+@pytest.mark.plants
+def test_the_description_check_rejects_a_count_that_went_stale(tmp_path):
+    described = PLANTED_README.replace("two checks", "three checks")
+    plant_the_description(tmp_path, described, PLANTED_FENCES)
+    assert readme_problems(tmp_path) == [
+        "the readme counts three checks, and the file holds two"
+    ]
+
+
+@pytest.mark.plants
+def test_the_description_check_rejects_a_planting_test_with_no_mark(tmp_path):
+    written = PLANTED_FENCES.replace(
+        "@pytest.mark.plants\ndef test_the_record_fence", "def test_the_record_fence"
+    )
+    plant_the_description(tmp_path, PLANTED_README, written)
+    assert readme_problems(tmp_path) == [
+        "test_the_record_fence_rejects_a_record_with_no_date plants a tree and no mark says "
+        "which kind it is",
+        "record_problems has no test that plants a tree for it to refuse",
+        "the readme counts two tests that plant a tree a check has to refuse, "
+        "and the file holds one",
+    ]
+
+
+@pytest.mark.plants
+def test_the_description_check_rejects_a_mark_on_a_test_that_plants_nothing(tmp_path):
+    written = PLANTED_FENCES.replace(
+        "def test_nothing_reaches_the_network",
+        "@pytest.mark.plants\n@pytest.mark.admits\ndef test_nothing_reaches_the_network",
+    )
+    plant_the_description(tmp_path, PLANTED_README, written)
+    assert readme_problems(tmp_path) == [
+        "test_nothing_reaches_the_network carries both marks, and a planted tree is one or "
+        "the other",
+        "test_nothing_reaches_the_network is marked plants and plants nothing",
+        "the readme counts two tests that plant a tree a check has to refuse, "
+        "and the file holds three",
+        "the readme counts zero tests that plant a tree it has to accept, "
+        "and the file holds one",
+    ]
+
+
+@pytest.mark.plants
+def test_the_description_check_rejects_a_count_the_readme_dropped(tmp_path):
+    described = PLANTED_README.replace(
+        "and zero\ntests that plant a tree it has to accept", "and none of the other kind"
+    )
+    plant_the_description(tmp_path, described, PLANTED_FENCES)
+    assert readme_problems(tmp_path) == [
+        "the readme does not say tests that plant a tree it has to accept, "
+        "so no count of it is read back"
+    ]
+
+
+@pytest.mark.plants
+def test_the_description_check_refuses_a_tree_with_neither_file_in_it(tmp_path):
+    assert readme_problems(tmp_path) == [
+        f"{README} is not here, so the description is checked against nothing",
+        f"{FENCE_FILE} is not here, so the description is checked against nothing",
+    ]
+
+
+@pytest.mark.plants
+def test_the_description_check_rejects_a_plants_mark_on_a_test_that_asserts_an_empty_list(tmp_path):
+    written = PLANTED_FENCES.replace(
+        "assert network_problems(tmp_path) == ['a socket']",
+        "assert network_problems(tmp_path) == []",
+    )
+    plant_the_description(tmp_path, PLANTED_README, written)
+    assert readme_problems(tmp_path) == [
+        "test_the_network_fence_rejects_a_socket is marked plants and asserts no check "
+        "refused the tree",
+        "network_problems has no test that plants a tree for it to refuse",
+    ]
+
+
+@pytest.mark.plants
+def test_the_description_check_rejects_an_admits_mark_on_a_test_that_asserts_a_refusal(tmp_path):
+    written = PLANTED_FENCES.replace(
+        "@pytest.mark.plants\ndef test_the_record_fence",
+        "@pytest.mark.admits\ndef test_the_record_fence",
+    )
+    described = PLANTED_README.replace(
+        "two tests that plant a tree a check has to refuse, and zero",
+        "one tests that plant a tree a check has to refuse, and one",
+    )
+    plant_the_description(tmp_path, described, written)
+    assert readme_problems(tmp_path) == [
+        "test_the_record_fence_rejects_a_record_with_no_date is marked admits and asserts a "
+        "check refused the tree",
+        "record_problems has no test that plants a tree for it to refuse",
+    ]
+
+
+@pytest.mark.plants
+def test_the_description_check_rejects_a_mark_on_a_test_that_asserts_no_check_at_all(tmp_path):
+    written = PLANTED_FENCES.replace(
+        "@pytest.mark.plants\n"
+        "def test_the_network_fence_rejects_a_socket(tmp_path):\n"
+        "    assert network_problems(tmp_path) == ['a socket']",
+        "@pytest.mark.admits\n"
+        "def test_the_network_fence_rejects_a_socket(tmp_path):\n"
+        "    assert tmp_path.is_dir()",
+    )
+    described = PLANTED_README.replace(
+        "two tests that plant a tree a check has to refuse, and zero",
+        "one tests that plant a tree a check has to refuse, and one",
+    )
+    plant_the_description(tmp_path, described, written)
+    assert readme_problems(tmp_path) == [
+        "test_the_network_fence_rejects_a_socket is marked admits and asserts no check "
+        "accepted the tree",
+        "network_problems has no test that plants a tree for it to refuse",
     ]

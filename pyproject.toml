@@ -20,3 +20,8 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+addopts = "--strict-markers"
+markers = [
+    "plants: the test plants a tree a check has to refuse",
+    "admits: the test plants a tree a check has to accept",
+]
