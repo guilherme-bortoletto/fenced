@@ -21,6 +21,12 @@ it. That is the same accident one level down. A parameter says a test was handed
 It does not say what the test wrote into the folder or what it expects back, so a count built on it
 holds until a test takes `tmp_path` for some other reason.
 
+A mark is the same accident once more, in a politer form. A mark is a word somebody typed above a
+test. Read on its own it says a tree was planted for a check to refuse, while the assertion under it
+can be `== []`, which is a tree the check accepts. Such a test counts among the ones that plant a
+refusal, and it is also the only test that check needs in order to be called watched. Both sentences
+of the README are then right about nothing.
+
 This is the shape of record 0010 one level out. There the record named doors and the lists did not
 carry them, and the table closed it by writing the mapping down and testing that the two agree.
 
@@ -37,6 +43,9 @@ Each fence quotes the rule of its row in the README, on the line under its headi
 - Two fences quoting one row.
 - A test that takes `tmp_path` and carries no mark, a test that carries both marks, and a mark on a
   test that plants nothing.
+- A mark that disagrees with the assertion of its own test. A `plants` test that asserts no check
+  refused the tree, an `admits` test that asserts one did, and an `admits` test that asserts nothing
+  about a check at all.
 - A check no test marked `plants` ever called, because a fence nobody watched reject anything is
   decoration and the README says so.
 - A count the README writes that the file does not hold, a count with no number in front of it, and
@@ -51,12 +60,18 @@ it has to accept it. Both marks are registered in `pyproject.toml`, and `--stric
 mark nobody registered into an error rather than a warning. `tmp_path` is what makes a missing mark
 loud, and the mark is what a count is read off.
 
+The mark is read back against the assertion of its own test, the same way a check is read off an
+assertion and not off an annotation. `== []` says the check accepted the tree. A list with something
+in it, `!= []`, and the call on its own say it refused. A check counts as watched only where a test
+marked `plants` asserts that it refused, so a mark that lies about its tree takes the check it names
+down with it rather than covering for it.
+
 A number is written as words, and `spelled` renders the count the file holds in the same spelling,
 so twenty five and 25 are one claim.
 
 ## Consequences
 
-The README separates the two kinds now, and the tests that plant for this check are nine of the
+The README separates the two kinds now, and the tests that plant for this check are twelve of the
 first number. The sentence that was wrong by two is a test.
 
 A reword of a row fails the suite until the quote under its fence is reworded with it. That is what
@@ -69,6 +84,11 @@ that would otherwise have left the README stale.
 What this does not do is read whether a row describes what its fence checks. The quote pairs a row
 with a fence by name. A row that says the opposite of what its fence does passes, the same way a
 door table that forgets a module passes in record 0010.
+
+It does not read the planted tree either. The assertion says a check refused something and the mark
+agrees with the assertion, and neither of them says the refusal came from what this test wrote. A
+test that writes nothing and asserts the refusal an empty tree earns passes, which is what
+`test_the_description_check_refuses_a_tree_with_neither_file_in_it` does on purpose.
 
 `test_the_tree_has_the_shape_the_fences_assume` is a check by neither name nor definition. It
 asserts a comprehension and not a call, so nothing counts it, which is what it was before.

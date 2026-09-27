@@ -522,6 +522,9 @@ FENCE_HEADING = re.compile(r"^# Fence (\d+)\.")
 QUOTED_ROW = "# The row in the README: "
 RULE_HEADER = "Rule"
 PLANTING_MARKS = ("plants", "admits")
+# A call a test asserts on, as the name of the call and whether the assertion says the
+# check refused the tree the test planted.
+ASSERTION = tuple[str, bool]
 # A number as the README writes one, which is words with a space and no hyphen.
 UNITS = (
     "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
@@ -608,8 +611,39 @@ def checks_in_the_file(tree: ast.AST) -> list[str]:
     return names
 
 
-def every_test_in_the_file(tree: ast.AST) -> list[tuple[str, list[str], bool, list[str]]]:
-    """Every test of the file, as its name, its marks, whether it plants and what it calls."""
+def asserted_checks(node: ast.AST) -> list[ASSERTION]:
+    """Every call a test asserts on, and what each assertion says the call returned.
+
+    `== []` says the check accepted the tree the test planted. A list with something in it,
+    `!= []`, and the call on its own all say the check refused it. This is the reading
+    `checks_in_the_file` makes of a green assertion carried one step further, and it is what a
+    mark is read back against, because a mark on its own is only what somebody typed.
+    """
+    found = []
+    for inner in ast.walk(node):
+        if not isinstance(inner, ast.Assert):
+            continue
+        asserted = inner.test
+        if isinstance(asserted, ast.Call) and isinstance(asserted.func, ast.Name):
+            found.append((asserted.func.id, True))
+            continue
+        if not isinstance(asserted, ast.Compare) or len(asserted.ops) != 1:
+            continue
+        called = asserted.left
+        if not isinstance(called, ast.Call) or not isinstance(called.func, ast.Name):
+            continue
+        against = asserted.comparators[0]
+        if not isinstance(against, ast.List):
+            continue
+        if isinstance(asserted.ops[0], ast.Eq):
+            found.append((called.func.id, bool(against.elts)))
+        elif isinstance(asserted.ops[0], ast.NotEq) and not against.elts:
+            found.append((called.func.id, True))
+    return found
+
+
+def every_test_in_the_file(tree: ast.AST) -> list[tuple[str, list[str], bool, list[ASSERTION]]]:
+    """Every test of the file, as its name, its marks, whether it plants and what it asserts."""
     found = []
     for node in tree.body:
         if not isinstance(node, ast.FunctionDef) or not node.name.startswith("test_"):
@@ -621,12 +655,7 @@ def every_test_in_the_file(tree: ast.AST) -> list[tuple[str, list[str], bool, li
             if ast.unparse(decorator) == f"pytest.mark.{mark}"
         ]
         plants = any(argument.arg == "tmp_path" for argument in node.args.args)
-        called = [
-            inner.func.id
-            for inner in ast.walk(node)
-            if isinstance(inner, ast.Call) and isinstance(inner.func, ast.Name)
-        ]
-        found.append((node.name, marks, plants, called))
+        found.append((node.name, marks, plants, asserted_checks(node)))
     return found
 
 
@@ -642,6 +671,11 @@ def readme_problems(root: Path) -> list[str]:
     to refuse that tree or accept it. The parameter is what makes a missing mark loud and the
     mark is what a count is read off, because the parameter says nothing about what was
     planted and a count built on it is right by accident.
+
+    The mark is then read back against what the test asserts. A mark is a word somebody typed,
+    so a count built on it alone is right by accident too, in the politer way. `plants` has to
+    assert a check refused the tree and `admits` has to assert one accepted it, and a check is
+    watched refuse something only where a test marked `plants` asserts that it did.
     """
     absent = [
         f"{name} is not here, so the description is checked against nothing"
@@ -670,14 +704,29 @@ def readme_problems(root: Path) -> list[str]:
             found.append(f"fence {number} quotes {rule}, which the readme has no row for")
         elif quoted.count(rule) > 1:
             found.append(f"fence {number} quotes a row another fence quotes, {rule}")
-    for name, marks, plants, _ in tests:
+    for name, marks, plants, asserted in tests:
         if plants and not marks:
             found.append(f"{name} plants a tree and no mark says which kind it is")
         if len(marks) > 1:
             found.append(f"{name} carries both marks, and a planted tree is one or the other")
         if marks and not plants:
             found.append(f"{name} is marked {marks[0]} and plants nothing")
-    refused = {call for _, marks, _, calls in tests if "plants" in marks for call in calls}
+        if not plants or len(marks) != 1:
+            continue
+        said = {says_refused for _, says_refused in asserted}
+        if marks == ["plants"] and True not in said:
+            found.append(f"{name} is marked plants and asserts no check refused the tree")
+        elif marks == ["admits"] and True in said:
+            found.append(f"{name} is marked admits and asserts a check refused the tree")
+        elif marks == ["admits"] and False not in said:
+            found.append(f"{name} is marked admits and asserts no check accepted the tree")
+    refused = {
+        call
+        for _, marks, _, asserted in tests
+        if "plants" in marks
+        for call, says_refused in asserted
+        if says_refused
+    }
     found += [
         f"{check} has no test that plants a tree for it to refuse"
         for check in checks
@@ -1193,4 +1242,58 @@ def test_the_description_check_refuses_a_tree_with_neither_file_in_it(tmp_path):
     assert readme_problems(tmp_path) == [
         f"{README} is not here, so the description is checked against nothing",
         f"{FENCE_FILE} is not here, so the description is checked against nothing",
+    ]
+
+
+@pytest.mark.plants
+def test_the_description_check_rejects_a_plants_mark_on_a_test_that_asserts_an_empty_list(tmp_path):
+    written = PLANTED_FENCES.replace(
+        "assert network_problems(tmp_path) == ['a socket']",
+        "assert network_problems(tmp_path) == []",
+    )
+    plant_the_description(tmp_path, PLANTED_README, written)
+    assert readme_problems(tmp_path) == [
+        "test_the_network_fence_rejects_a_socket is marked plants and asserts no check "
+        "refused the tree",
+        "network_problems has no test that plants a tree for it to refuse",
+    ]
+
+
+@pytest.mark.plants
+def test_the_description_check_rejects_an_admits_mark_on_a_test_that_asserts_a_refusal(tmp_path):
+    written = PLANTED_FENCES.replace(
+        "@pytest.mark.plants\ndef test_the_record_fence",
+        "@pytest.mark.admits\ndef test_the_record_fence",
+    )
+    described = PLANTED_README.replace(
+        "two tests that plant a tree a check has to refuse, and zero",
+        "one tests that plant a tree a check has to refuse, and one",
+    )
+    plant_the_description(tmp_path, described, written)
+    assert readme_problems(tmp_path) == [
+        "test_the_record_fence_rejects_a_record_with_no_date is marked admits and asserts a "
+        "check refused the tree",
+        "record_problems has no test that plants a tree for it to refuse",
+    ]
+
+
+@pytest.mark.plants
+def test_the_description_check_rejects_a_mark_on_a_test_that_asserts_no_check_at_all(tmp_path):
+    written = PLANTED_FENCES.replace(
+        "@pytest.mark.plants\n"
+        "def test_the_network_fence_rejects_a_socket(tmp_path):\n"
+        "    assert network_problems(tmp_path) == ['a socket']",
+        "@pytest.mark.admits\n"
+        "def test_the_network_fence_rejects_a_socket(tmp_path):\n"
+        "    assert tmp_path.is_dir()",
+    )
+    described = PLANTED_README.replace(
+        "two tests that plant a tree a check has to refuse, and zero",
+        "one tests that plant a tree a check has to refuse, and one",
+    )
+    plant_the_description(tmp_path, described, written)
+    assert readme_problems(tmp_path) == [
+        "test_the_network_fence_rejects_a_socket is marked admits and asserts no check "
+        "accepted the tree",
+        "network_problems has no test that plants a tree for it to refuse",
     ]

@@ -42,13 +42,15 @@ Nothing in that table is only a description. Each fence quotes the rule of its r
 `test_the_readme_describes_the_fences_the_file_carries` reads the rows and the fences back against
 each other. A row with no fence fails, a fence with no row fails, and so does a check that no test
 ever planted a tree for. The counts in the tour below come off the same file. A test that plants a
-tree carries a mark saying whether the check has to refuse that tree or accept it, and
-`docs/adr/0013-the-readme-is-read-back-and-a-planting-test-says-what-it-plants.md` says why the
-count is read off the mark and not off the parameter.
+tree carries a mark saying whether the check has to refuse that tree or accept it, and the mark is
+read back against what the test asserts, so a mark that disagrees with its own assertion is a
+failing test. `docs/adr/0013-the-readme-is-read-back-and-a-planting-test-says-what-it-plants.md`
+says why the count is read off the mark and not off the parameter, and why the mark alone is not
+enough to read it off.
 
 ## Fifteen minute tour
 
-1. `tests/test_fences.py`. The point of the repository. Six rules, eight checks, thirty four
+1. `tests/test_fences.py`. The point of the repository. Six rules, eight checks, thirty seven
    tests that plant a tree a check has to refuse, and two tests that plant a tree it has to
    accept.
 2. `docs/adr/0001-architecture-rules-live-in-tests.md`. Why they are tests and not a config file.
