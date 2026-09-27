@@ -9,12 +9,16 @@ The tests after those plant a body carrying attribution and expect the gate to r
 Then a term from a list written here, whole, written across a line break and written with a
 space inside it, with a refusal expected each time.
 The last ones read what a run says about itself, because a rule that did not run has to be
-said out loud and the word clean never covers one.
+said out loud and the word clean never covers one. They run the hook over a command with
+every check replaced by a stand in that records the call, so what ran and what the run said
+it ran are compared against each other rather than against a line written down here.
 """
 
 from __future__ import annotations
 
 import importlib.util
+import io
+import json
 import os
 import subprocess
 import sys
@@ -271,15 +275,71 @@ def gate_run(arguments: list[str], environment: dict[str, str]) -> subprocess.Co
     )
 
 
-def test_a_run_with_a_list_says_it_ran_the_term_rules_over_it():
-    ran, skipped = gates.rules_run(True, [PLANTED])
+# The check each named rule is made of. A run is read through this, so a rule that ran
+# without being named and a rule named without running are both a failing test.
+RULE_OF = {
+    "check_tests": gates.TESTS_RULE,
+    "check_text": gates.TEXT_RULE,
+    "identity_problems": gates.IDENTITY_RULE,
+    "message_problems": gates.MESSAGE_RULE,
+}
+
+
+def watched(monkeypatch) -> list[str]:
+    """Every check a run can make, replaced by a stand in that records the call.
+
+    The identity rule and the message rule keep the answer the real ones give, because they
+    read a command and cost nothing. The tests and the text rules answer clean without
+    running, because a gate that ran this suite from inside this suite would not stop.
+    """
+    called = []
+
+    def recording(name, answer):
+        def stand_in(*arguments):
+            called.append(name)
+            return answer(*arguments)
+
+        return stand_in
+
+    monkeypatch.setattr(gates, "check_tests", recording("check_tests", lambda root: []))
+    monkeypatch.setattr(
+        gates, "check_text", recording("check_text", lambda paths, terms, root: [])
+    )
+    for name in ("identity_problems", "message_problems"):
+        monkeypatch.setattr(gates, name, recording(name, getattr(gates, name)))
+    return called
+
+
+def named_rules(written: str) -> set[str]:
+    """The rules a run says it ran, read back off the line it wrote."""
+    opening = "gates: ran "
+    for line in written.splitlines():
+        if line.startswith(opening):
+            return set(line[len(opening) :].split(", "))
+    return set()
+
+
+def hook_over(monkeypatch, capsys, command: str) -> tuple[int, list[str], str]:
+    """The hook over one command, returning its code, the checks it made and what it wrote."""
+    called = watched(monkeypatch)
+    monkeypatch.delenv("FENCED_TERMS_FILE", raising=False)
+    payload = {"tool_name": "Bash", "tool_input": {"command": command}}
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+    code = gates.run_hook(None, ROOT)
+    return code, called, capsys.readouterr().err
+
+
+def test_a_run_with_a_list_says_it_ran_the_term_rules_over_it(monkeypatch):
+    watched(monkeypatch)
+    _, ran, skipped = gates.run_rules([], [PLANTED], ROOT)
     assert ran == ["the tests", "the text rules", "the term rules over a list of 1"]
     assert skipped == []
     assert gates.verdict(skipped) == "gates: clean"
 
 
-def test_a_run_without_a_list_says_the_term_rules_did_not_run():
-    ran, skipped = gates.rules_run(True, [])
+def test_a_run_without_a_list_says_the_term_rules_did_not_run(monkeypatch):
+    watched(monkeypatch)
+    _, ran, skipped = gates.run_rules([], [], ROOT)
     assert ran == ["the tests", "the text rules"]
     assert skipped == [("the term rules", gates.NO_LIST)]
     assert gates.verdict(skipped) == "gates: clean apart from the term rules"
@@ -289,11 +349,93 @@ def test_a_run_without_a_list_says_the_term_rules_did_not_run():
     ]
 
 
-def test_a_run_of_the_text_rules_alone_counts_the_tests_as_a_rule_it_did_not_run():
-    ran, skipped = gates.rules_run(False, [PLANTED])
+def test_a_run_of_the_text_rules_alone_counts_the_tests_as_a_rule_it_did_not_run(monkeypatch):
+    called = watched(monkeypatch)
+    _, ran, skipped = gates.run_rules([], [PLANTED], ROOT, tests=False)
+    assert called == ["check_text"]
     assert ran == ["the text rules", "the term rules over a list of 1"]
     assert skipped == [("the tests", gates.TEXT_ONLY)]
     assert gates.verdict(skipped) == "gates: clean apart from the tests"
+
+
+def test_a_run_with_no_command_names_neither_rule_that_reads_one(monkeypatch):
+    """A plain run is not about a commit, so the two rules that read one are not its rules."""
+    called = watched(monkeypatch)
+    found, ran, skipped = gates.run_rules([], [], ROOT)
+    assert found == []
+    assert called == ["check_tests", "check_text"]
+    assert named_rules(gates.accounting(ran, skipped)[0]) == {RULE_OF[n] for n in called}
+    assert gates.IDENTITY_RULE not in str(skipped)
+    assert gates.MESSAGE_RULE not in str(skipped)
+
+
+def test_the_hook_names_every_rule_it_ran(monkeypatch, capsys):
+    """What the hook wrote about itself, against the checks it actually made.
+
+    The commit passes, so the hook speaks only because a rule was skipped, which is the
+    line under test. Nothing here says how many rules there are. The two sides are the
+    calls that were recorded and the names that were written.
+    """
+    code, called, written = hook_over(
+        monkeypatch, capsys, f"git -c user.email={NOREPLY} commit -m 'a step'"
+    )
+    assert code == 0, written
+    assert set(called) == set(RULE_OF)
+    assert named_rules(written) == {RULE_OF[name] for name in called}
+
+
+def test_the_hook_leaves_out_the_identity_rule_when_the_command_writes_no_commit(
+    monkeypatch, capsys
+):
+    code, called, written = hook_over(monkeypatch, capsys, "git push -u origin a-branch")
+    assert code == 0, written
+    assert "identity_problems" not in called
+    assert named_rules(written) == {RULE_OF[name] for name in called}
+    assert f"gates: did not run {gates.IDENTITY_RULE}, because {gates.NO_COMMIT}" in written
+    assert gates.IDENTITY_RULE in written.splitlines()[-1]
+
+
+def test_the_hook_leaves_out_the_message_rule_when_the_command_carries_no_message(
+    monkeypatch, capsys
+):
+    """A push carries no message, so the rule that reads one has nothing to read.
+
+    The rule ran on a push once, read nothing, returned nothing, and the run named it. That
+    is a name with no reading behind it, which is the one thing the record says a run does
+    not write.
+    """
+    code, called, written = hook_over(monkeypatch, capsys, "git push -u origin a-branch")
+    assert code == 0, written
+    assert "message_problems" not in called
+    assert named_rules(written) == {RULE_OF[name] for name in called}
+    assert f"gates: did not run {gates.MESSAGE_RULE}, because {gates.NO_MESSAGE}" in written
+    assert gates.MESSAGE_RULE in written.splitlines()[-1]
+
+
+def test_the_hook_says_it_read_no_message_when_an_editor_is_asked_for_one(monkeypatch, capsys):
+    """A command with no message on it is answered by an editor, and no gate reads that.
+
+    This is the case the accounting owes a reader most. The identity rule has a commit in
+    front of it and runs. The message rule is handed nothing, and saying so is how a reader
+    finds out that the text going into this commit was never read.
+    """
+    code, called, written = hook_over(monkeypatch, capsys, f"git -c user.email={NOREPLY} commit")
+    assert code == 0, written
+    assert "identity_problems" in called
+    assert "message_problems" not in called
+    assert named_rules(written) == {RULE_OF[name] for name in called}
+    assert gates.IDENTITY_RULE in named_rules(written)
+    assert f"gates: did not run {gates.MESSAGE_RULE}, because {gates.NO_MESSAGE}" in written
+
+
+def test_a_command_that_carries_a_message_names_the_rule_that_read_it(monkeypatch):
+    """The other side of the same rule. A message is there, so the rule is one the run made."""
+    watched(monkeypatch)
+    _, ran, skipped = gates.run_rules(
+        [], [], ROOT, command=f"git -c user.email={NOREPLY} commit -m 'a step'"
+    )
+    assert gates.MESSAGE_RULE in ran
+    assert gates.MESSAGE_RULE not in [name for name, _ in skipped]
 
 
 def test_a_run_with_a_list_and_a_run_without_one_do_not_say_the_same_thing(tmp_path):

@@ -1,89 +1,94 @@
-Closes #31
+Closes #33
 
 ## What
 
-The publisher now reads one number twice. It reads `claude/issue-N` off the head branch it was
-given, and it reads `Closes #M` off the first line of the body. It refuses when the two differ,
-and it refuses before it asks GitHub anything, so a refusal leaves no call behind.
+`run_rules` in `scripts/gates.py` makes the checks and writes the accounting in one pass. It
+replaces `rules_run`, which took a flag and a list, knew three rules, and was asked for names by a
+hook that had just run four. The hook now says it ran the identity rule and the message rule,
+because it did.
 
-It also refuses a body that does not open with `Closes #N` at all, and a head branch that names no
-issue. Reading nothing out of a body and publishing it anyway is the shape of this bug.
+    gates: ran the tests, the text rules, the identity rule, the message rule
 
-Four tests read `.github/workflows/pull-request.yml` and fail when the publish step could run
-without the check, which is when it names a head of its own or reads one from anywhere but the
-branch that was pushed.
+A command that moves commits rather than writing one gives the identity rule nothing to read. That
+is a rule the run could not make, so it carries a reason like every other skipped rule, and the
+verdict stops covering it.
 
-`docs/adr/0011-a-body-names-the-issue-its-branch-names.md` records the decision and says what the
-check does not cover. `AGENTS.md` now says which push opens the pull request in the same words
-record 0008 uses.
+    gates: did not run the identity rule, because this command writes no commit
+    gates: clean apart from the term rules, the identity rule
+
+A run with no command in front of it is not about a commit at all, so it names neither of the two
+rules that read one. What `python scripts/gates.py` prints has not moved.
+
+`writes_a_commit` now holds the question the identity rule is asked. The rule asks it before it
+runs and the accounting asks it before it names, so the two answers are one answer.
 
 ## Why
 
-The title and the body land on `main` with every pull request that carries them. They stay there
-until the next one lands, so a branch inherits the text of the run before it at the moment it is
-cut. `AGENTS.md` tells a run to push right after its first commit. The workflow runs on that push,
-finds the two files, and publishes.
+Record 0009 says a run says which rules it ran and which it could not, and that `clean` never
+covers a rule that did not run. The hook broke that rule while reporting it. Four checks ran and
+the line named two, so a reader who took it at its word did not know the address the commit would
+carry had been read, or that the message had been read at all.
 
-The text gate passes, because that text was written to pass it. The publisher reads the pull
-request back and gates the stored body, and that passes for the same reason. Nothing in the path
-could tell that the text belonged to another issue. Pull request 30 is what that looks like, a
-branch named `claude/issue-25` carrying a body that says `Closes #23`.
+The hook is also the only place the identity rule is ever reported, because a plain run has no
+commit in front of it. The one line where a reader could find out that rule exists was the line
+leaving it out.
 
-The number is the one thing the two texts cannot share. The branch name carries it and the first
-line of the body carries it, and a body written for another run says the wrong one.
+The two counts could drift because they were written apart. `run_hook` collected findings and then
+asked `rules_run(True, terms)` for names. Nothing tied them together, and no test read one against
+the other.
 
 ## Tests
 
-`tests/test_publish.py` grows ten tests and the suite goes from 257 to 267.
+The three tests that called `rules_run` go through `run_rules` now, with the checks replaced by
+stand ins, so they still read the naming without running this suite from inside this suite.
 
-Six plant the publisher. A body that closes the issue the branch names, a body that closes another
-one, a body that opens with something else, a body with nothing in it, a number further down the
-body that is not read, and a head branch that names no issue. Each refusal asserts that the fake
-transport recorded no call at all.
+`test_the_hook_names_every_rule_it_ran` runs the hook over a passing commit with every check
+replaced by a stand in that records the call, then compares the calls with the names in the line
+the hook wrote. How many rules there are is written down nowhere in it. I planted the bug the issue
+describes by deleting the line that names the message rule, watched that test fail, and put the
+line back.
 
-Four read the workflow as text. That the publish step hands the publisher the branch that was
-pushed, that a step naming a head of its own is refused, that a step reading no pushed branch is
-refused, and that a step with no head at all is refused.
+`test_the_hook_leaves_out_the_identity_rule_when_the_command_writes_no_commit` reads the same line
+over a push, then the reason under it and the verdict under that.
 
-`python -m pytest` and `python scripts/gates.py` ran before every commit and both were clean, apart
-from the term rules, which this clone has no list for.
+`test_a_run_with_no_command_names_neither_rule_that_reads_one` holds the plain run to the two rules
+it makes.
+
+273 tests pass.
 
 ## Decisions I made
 
-A new record rather than an edit to record 0008. The index says a record is not rewritten to match
-a later opinion. Record 0008 already said the pull request opens on the push that carries the body,
-so the two agree once `AGENTS.md` says it as plainly. The check is a decision of its own, and it
-carries its own account of what it does not cover.
+A rule with nothing in front of it is not a rule the run skipped. A plain run of the gate is not
+about a commit, so it names the identity rule and the message rule nowhere, rather than listing
+both as skipped every time a person runs the gate by hand. The other reading puts two lines about a
+commit in front of someone who is not making one, and stretches `clean apart from` over rules that
+were never part of that run. A push is a different case, because there the hook does read a
+command, so there the identity rule is named with its reason.
 
-A head branch that names no issue is refused rather than published. The workflow fires on every
-`claude/` branch and only `claude/issue-N` carries a number. A branch of another shape leaves the
-check nothing to read, and a publish with nothing to check is the publish this stops.
+The two rules are called `the identity rule` and `the message rule`, which is what the issue calls
+them.
 
-The number is read off the first line that has anything on it, so a body that opens with a blank
-line still reads. Nothing further down is read, because a body names other issues in its prose and
-a record it cites carries a number too.
-
-The check runs before the text gate. A body written for another run is not this run's text at all,
-and no text rule can tell.
-
-The workflow file is unchanged. Its publish step already hands the publisher the branch that was
-pushed through the environment, and the four new tests hold it there.
+A fence that misses a case is ordinary work, so the fix needed no record. The reading above is a
+decision a reader would ask about, so it went to
+`docs/adr/0012-a-run-names-a-rule-only-where-it-has-something-to-read.md` with a row in the index.
 
 ## Run notes
 
-The text rule of `AGENTS.md`: "No dash used as punctuation and no semicolon, in Markdown or in a
-docstring. Short sentences. Describe what is there instead of selling it."
+Quoting the text rule of `AGENTS.md` before anything else: "No dash used as punctuation and no semicolon, in Markdown or in a docstring. Short sentences. Describe what is there instead of selling it."
 
-Three commits. The first removed `.github/pull-request/title.md` and
-`.github/pull-request/body.md`, which were the text of the run on issue 28, and pushed, so that
-this run published nothing of somebody else's while it worked. The second added the check and the
-ten tests. The third added record 0011, its index row and the wording in `AGENTS.md`. This commit
-writes the title and the body back, and the push that carries it is the one that opens this pull
-request.
+What I did. I took issue 33, the lowest numbered open issue labelled night with no pull request,
+and read its body and not its comments. I branched from `origin/main`, because the local `main` in
+this clone pointed at an older commit than the one the remote carries. One commit, pushed right
+after it was made, then these two files and the push that carries them.
 
-What I did not do. Record 0008 was left as it stands. The workflow was left as it stands. The
-publisher on `main` is what runs for this branch, so the check lands with this pull request and
-guards the runs after it, not this one.
+What I did not do. I did not touch record 0009. A record is not rewritten to match a later opinion,
+so the reading that follows from it went into 0012. I did not run the term rules, because this
+clone has no list of private terms to run them over, so nothing in this branch proves anything
+about how a term is matched. The hook test does not watch the term rules separately either, for
+the same reason. They ride inside the text rules and there is no list here to make them visible.
 
-The gates. `python scripts/gates.py` took about one second on each of the three runs, of which the
-suite is about six tenths of a second for 267 tests. Nothing was slow enough to time.
+How long the gates took. `python -m pytest` runs 273 tests in 0.6 seconds and
+`python scripts/gates.py` takes 0.8 seconds end to end. pytest was not installed in this container,
+so the gate refused with `pytest is not installed, so the tests did not run` until I installed it.
+That is the gate failing closed, and installing the one development dependency is not a fence
+softened to get a commit through.

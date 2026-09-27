@@ -60,8 +60,12 @@ TEXT_SUFFIXES = (".md", ".py")
 TESTS_RULE = "the tests"
 TEXT_RULE = "the text rules"
 TERM_RULE = "the term rules"
+IDENTITY_RULE = "the identity rule"
+MESSAGE_RULE = "the message rule"
 NO_LIST = "no list of private terms was pointed at, by --terms-file or FENCED_TERMS_FILE"
 TEXT_ONLY = "--text asks for the text rules and nothing else"
+NO_COMMIT = "this command writes no commit"
+NO_MESSAGE = "this command carries no message"
 # What a run of whitespace becomes in the two views a term is read in besides the text as
 # it stands. One space carries a term of two words over a line break. Nothing at all carries
 # a term of one word over a line break and over a space written inside it.
@@ -353,6 +357,25 @@ def configured_address(root: Path) -> tuple[str, str]:
     return address, ""
 
 
+def writes_a_commit(command: str) -> bool:
+    """Whether this command writes a commit, which is what the identity rule reads.
+
+    A run asks this before it runs that rule and again before it names it, so the two
+    answers are the same answer.
+    """
+    return bool(AUTHORING.search(command))
+
+
+def carries_a_message(command: str) -> bool:
+    """Whether this command carries a message, which is what the message rule reads.
+
+    A run asks this before it runs that rule and again before it names it, so the two
+    answers are the same answer. A message an editor asks for, and a message read out of a
+    file, are both a message the command does not carry, so the rule has nothing to read.
+    """
+    return bool(MESSAGE.search(command))
+
+
 def identity_problems(command: str, root: Path) -> list[str]:
     """Addresses a commit command would write that are not a GitHub noreply address.
 
@@ -362,7 +385,7 @@ def identity_problems(command: str, root: Path) -> list[str]:
     it for the author and for the committer both, because otherwise it is still the one
     that lands on half of the commit.
     """
-    if not AUTHORING.search(command):
+    if not writes_a_commit(command):
         return []
     addresses = [shell_word(value) for value in INLINE_EMAIL.findall(command)]
     passed = {name: shell_word(value) for name, value in ENV_EMAIL.findall(command)}
@@ -389,6 +412,8 @@ def identity_problems(command: str, root: Path) -> list[str]:
 
 def message_problems(command: str) -> list[str]:
     """Attribution in the message of a git command, which is text no file ever holds."""
+    if not carries_a_message(command):
+        return []
     if ATTRIBUTION.search(" ".join(MESSAGE.findall(command))):
         return ["this message carries attribution, which this repository never uses"]
     return []
@@ -411,9 +436,7 @@ def run_hook(terms_file: str | None, root: Path) -> int:
     if not GUARDED.search(command):
         return 0
     terms = load_terms(terms_file)
-    found = check_tests(root) + check_text([], terms, root)
-    found += identity_problems(command, root) + message_problems(command)
-    ran, skipped = rules_run(True, terms)
+    found, ran, skipped = run_rules([], terms, root, command=command)
     said = accounting(ran, skipped)
     if not found:
         if skipped:
@@ -423,22 +446,58 @@ def run_hook(terms_file: str | None, root: Path) -> int:
     return 2
 
 
-def rules_run(tests: bool, terms: list[str]) -> tuple[list[str], list[tuple[str, str]]]:
-    """The rules a run checked, and the rules it could not with the reason for each.
+def run_rules(
+    paths: list[Path],
+    terms: list[str],
+    root: Path,
+    command: str | None = None,
+    tests: bool = True,
+) -> tuple[list[str], list[str], list[tuple[str, str]]]:
+    """What a run found, the rules it checked, and the rules it could not with a reason.
+
+    A rule is run and named here, in the same place, so a caller has no flag left to pass
+    that could say something the run did not do.
 
     A rule that did not run is not a failure. A clone holds no list of private terms,
     because that list belongs to a machine, and --text asks for the text rules alone.
     What a skipped rule must never be is silent, because a run that says clean over a
     rule it never ran reads as a run where every rule passed.
+
+    The two rules that read a command are named only by a run that has one, and then only
+    where the thing they read is in it. A command that moves commits rather than writing one
+    gives the identity rule nothing to read. A command that carries no message gives the
+    message rule nothing to read. Each is named as skipped with its own reason. A run with no
+    command at all is not about a commit, so neither rule is a rule it skipped and it names
+    neither. That decision is
+    docs/adr/0012-a-run-names-a-rule-only-where-it-has-something-to-read.md
     """
-    ran = [TESTS_RULE] if tests else []
-    skipped = [] if tests else [(TESTS_RULE, TEXT_ONLY)]
+    found: list[str] = []
+    ran: list[str] = []
+    skipped: list[tuple[str, str]] = []
+    if tests:
+        found += check_tests(root)
+        ran.append(TESTS_RULE)
+    else:
+        skipped.append((TESTS_RULE, TEXT_ONLY))
+    found += check_text(paths, terms, root)
     ran.append(TEXT_RULE)
     if terms:
         ran.append(f"{TERM_RULE} over a list of {len(terms)}")
     else:
         skipped.append((TERM_RULE, NO_LIST))
-    return ran, skipped
+    if command is None:
+        return found, ran, skipped
+    if writes_a_commit(command):
+        found += identity_problems(command, root)
+        ran.append(IDENTITY_RULE)
+    else:
+        skipped.append((IDENTITY_RULE, NO_COMMIT))
+    if carries_a_message(command):
+        found += message_problems(command)
+        ran.append(MESSAGE_RULE)
+    else:
+        skipped.append((MESSAGE_RULE, NO_MESSAGE))
+    return found, ran, skipped
 
 
 def accounting(ran: list[str], skipped: list[tuple[str, str]]) -> list[str]:
@@ -475,11 +534,10 @@ def main(argv: list[str]) -> int:
         return 1
 
     if args.text is not None:
-        found = check_text([Path(p) for p in args.text], terms, ROOT)
-        ran, skipped = rules_run(False, terms)
+        paths = [Path(p) for p in args.text]
+        found, ran, skipped = run_rules(paths, terms, ROOT, tests=False)
     else:
-        found = check_tests(ROOT) + check_text([], terms, ROOT)
-        ran, skipped = rules_run(True, terms)
+        found, ran, skipped = run_rules([], terms, ROOT)
 
     print("\n".join(accounting(ran, skipped)))
     if found:

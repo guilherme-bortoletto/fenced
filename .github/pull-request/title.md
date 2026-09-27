@@ -1,1 +1,1 @@
-runs: the first push of a run publishes the previous run's text
+gates: the hook says it ran two rules and it ran four
