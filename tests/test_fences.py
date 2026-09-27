@@ -9,7 +9,8 @@ They are hand written on purpose. A reader should see the rule and the test that
 enforces it on one screen. When a project outgrows this, import-linter,
 pytest-archon and tach do the same job with real machinery.
 
-The last tests plant a violation and expect the fence to reject it.
+The last tests plant a tree, and each one carries a mark saying which kind it is.
+`plants` is a tree a check has to refuse, and `admits` is one it has to accept.
 """
 
 from __future__ import annotations
@@ -20,6 +21,8 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -512,6 +515,7 @@ def test_the_tree_has_the_shape_the_fences_assume():
     assert [p for p in wanted if not (ROOT / p).is_dir()] == []
 
 
+@pytest.mark.plants
 def test_the_import_fence_rejects_a_planted_import(tmp_path):
     planted = tmp_path / "src" / "fenced" / "domain"
     planted.mkdir(parents=True)
@@ -519,6 +523,7 @@ def test_the_import_fence_rejects_a_planted_import(tmp_path):
     assert impure_imports(tmp_path) == ["src/fenced/domain/lead.py imports requests"]
 
 
+@pytest.mark.plants
 def test_the_import_fence_rejects_a_relative_escape_and_a_standard_library_door(tmp_path):
     planted = tmp_path / "src" / "fenced" / "domain"
     planted.mkdir(parents=True)
@@ -531,6 +536,7 @@ def test_the_import_fence_rejects_a_relative_escape_and_a_standard_library_door(
     ]
 
 
+@pytest.mark.admits
 def test_the_import_fence_reads_a_relative_import_in_a_package_init(tmp_path):
     package = tmp_path / "src" / "fenced" / "domain"
     package.mkdir(parents=True)
@@ -541,6 +547,7 @@ def test_the_import_fence_reads_a_relative_import_in_a_package_init(tmp_path):
     assert impure_imports(tmp_path) == []
 
 
+@pytest.mark.plants
 def test_the_import_fence_rejects_an_import_written_so_it_cannot_be_seen(tmp_path):
     planted = tmp_path / "src" / "fenced" / "ports"
     planted.mkdir(parents=True)
@@ -553,6 +560,7 @@ def test_the_import_fence_rejects_an_import_written_so_it_cannot_be_seen(tmp_pat
     ]
 
 
+@pytest.mark.plants
 def test_the_import_fence_rejects_reaching_anything_without_an_import(tmp_path):
     planted = tmp_path / "src" / "fenced" / "domain"
     planted.mkdir(parents=True)
@@ -565,6 +573,7 @@ def test_the_import_fence_rejects_reaching_anything_without_an_import(tmp_path):
     ]
 
 
+@pytest.mark.plants
 def test_the_import_fence_rejects_a_bare_open_in_both_pure_packages(tmp_path):
     for package in PURE_PACKAGES:
         planted = tmp_path / "src" / "fenced" / package
@@ -578,6 +587,7 @@ def test_the_import_fence_rejects_a_bare_open_in_both_pure_packages(tmp_path):
         planted.joinpath("reader.py").unlink()
 
 
+@pytest.mark.plants
 def test_the_import_fence_rejects_a_clock_and_a_source_of_randomness(tmp_path):
     planted = tmp_path / "src" / "fenced" / "domain"
     planted.mkdir(parents=True)
@@ -591,6 +601,7 @@ def test_the_import_fence_rejects_a_clock_and_a_source_of_randomness(tmp_path):
     ]
 
 
+@pytest.mark.plants
 def test_the_import_fence_rejects_every_way_to_import_a_module_by_name(tmp_path):
     planted = tmp_path / "src" / "fenced" / "domain"
     planted.mkdir(parents=True)
@@ -601,6 +612,7 @@ def test_the_import_fence_rejects_every_way_to_import_a_module_by_name(tmp_path)
         ], f"{name} slipped through"
 
 
+@pytest.mark.plants
 def test_the_import_fence_rejects_reading_the_install_layout(tmp_path):
     planted = tmp_path / "src" / "fenced" / "ports"
     planted.mkdir(parents=True)
@@ -611,6 +623,7 @@ def test_the_import_fence_rejects_reading_the_install_layout(tmp_path):
         ], f"{name} slipped through"
 
 
+@pytest.mark.plants
 def test_the_import_fence_rejects_the_terminal_and_a_second_thread_of_execution(tmp_path):
     """The names issue 28 planted, which the record calls doors and the list did not carry."""
     planted = tmp_path / "src" / "fenced" / "domain"
@@ -625,6 +638,7 @@ def test_the_import_fence_rejects_the_terminal_and_a_second_thread_of_execution(
         ], f"{name} slipped through"
 
 
+@pytest.mark.plants
 def test_the_import_fence_rejects_every_module_it_calls_a_door(tmp_path):
     planted = tmp_path / "src" / "fenced" / "domain"
     planted.mkdir(parents=True)
@@ -639,6 +653,7 @@ def test_the_import_fence_rejects_every_module_it_calls_a_door(tmp_path):
         ], f"{name} slipped through"
 
 
+@pytest.mark.plants
 def test_the_import_fence_rejects_every_name_it_calls_a_runtime_door(tmp_path):
     planted = tmp_path / "src" / "fenced" / "ports"
     planted.mkdir(parents=True)
@@ -675,6 +690,7 @@ def plant_the_door_records(root: Path, definition: str, table: str) -> None:
     (root / DOOR_TABLE).write_text(table, encoding="utf-8")
 
 
+@pytest.mark.plants
 def test_the_record_check_rejects_a_door_the_list_does_not_carry(tmp_path):
     plant_the_door_records(tmp_path, PLANTED_DEFINITION, PLANTED_TABLE)
     assert door_list_problems(tmp_path, {"io"}, {"time"}, ()) == [
@@ -682,6 +698,7 @@ def test_the_record_check_rejects_a_door_the_list_does_not_carry(tmp_path):
     ]
 
 
+@pytest.mark.plants
 def test_the_record_check_rejects_a_table_that_does_not_match_the_sentence(tmp_path):
     table = PLANTED_TABLE.replace("| the terminal | `curses` |", "| a socket | `socket` |")
     plant_the_door_records(tmp_path, PLANTED_DEFINITION, table)
@@ -691,6 +708,7 @@ def test_the_record_check_rejects_a_table_that_does_not_match_the_sentence(tmp_p
     ]
 
 
+@pytest.mark.plants
 def test_the_record_check_rejects_a_row_that_carries_no_name(tmp_path):
     """A name moved out of a row and the row it left behind is empty."""
     table = PLANTED_TABLE.replace("| the terminal | `curses` |", "| the terminal |  |")
@@ -700,6 +718,7 @@ def test_the_record_check_rejects_a_row_that_carries_no_name(tmp_path):
     ]
 
 
+@pytest.mark.plants
 def test_the_record_check_rejects_a_quote_the_record_does_not_say(tmp_path):
     reworded = PLANTED_DEFINITION.replace("the terminal", "a socket")
     plant_the_door_records(tmp_path, reworded, PLANTED_TABLE)
@@ -708,6 +727,7 @@ def test_the_record_check_rejects_a_quote_the_record_does_not_say(tmp_path):
     ]
 
 
+@pytest.mark.plants
 def test_the_record_check_rejects_a_name_in_a_row_that_is_not_a_module(tmp_path):
     table = PLANTED_TABLE.replace("`curses`", "`curses`, `curtains`")
     plant_the_door_records(tmp_path, PLANTED_DEFINITION, table)
@@ -716,6 +736,7 @@ def test_the_record_check_rejects_a_name_in_a_row_that_is_not_a_module(tmp_path)
     ]
 
 
+@pytest.mark.plants
 def test_the_record_check_rejects_a_runtime_door_no_row_reaches(tmp_path):
     plant_the_door_records(tmp_path, PLANTED_DEFINITION, PLANTED_TABLE)
     assert door_list_problems(tmp_path, {"io", "curses"}, {"time"}, ("eval",)) == [
@@ -723,6 +744,7 @@ def test_the_record_check_rejects_a_runtime_door_no_row_reaches(tmp_path):
     ]
 
 
+@pytest.mark.plants
 def test_the_record_check_refuses_a_tree_with_no_record_in_it(tmp_path):
     assert door_list_problems(tmp_path, {"io"}, {"time"}, ()) == [
         f"{DOOR_RECORD} is not here, so the lists are checked against nothing",
@@ -730,6 +752,7 @@ def test_the_record_check_refuses_a_tree_with_no_record_in_it(tmp_path):
     ]
 
 
+@pytest.mark.admits
 def test_the_import_fence_still_admits_the_arithmetic_the_domain_is_made_of(tmp_path):
     planted = tmp_path / "src" / "fenced" / "domain"
     planted.mkdir(parents=True)
@@ -741,6 +764,7 @@ def test_the_import_fence_still_admits_the_arithmetic_the_domain_is_made_of(tmp_
     assert impure_imports(tmp_path) == []
 
 
+@pytest.mark.plants
 def test_a_package_whose_name_merely_starts_the_same_is_not_inside_it(tmp_path):
     planted = tmp_path / "src" / "fenced" / "apple"
     planted.mkdir(parents=True)
@@ -750,6 +774,7 @@ def test_a_package_whose_name_merely_starts_the_same_is_not_inside_it(tmp_path):
     ]
 
 
+@pytest.mark.plants
 def test_the_write_fence_rejects_a_record_store_reached_by_another_name(tmp_path):
     allowed = tmp_path / "src" / "fenced" / "app"
     allowed.mkdir(parents=True)
@@ -764,6 +789,7 @@ def test_the_write_fence_rejects_a_record_store_reached_by_another_name(tmp_path
     ]
 
 
+@pytest.mark.plants
 def test_the_prompt_fence_rejects_a_prompt_built_at_run_time(tmp_path):
     planted = tmp_path / "src" / "fenced" / "adapters"
     planted.mkdir(parents=True)
@@ -775,6 +801,7 @@ def test_the_prompt_fence_rejects_a_prompt_built_at_run_time(tmp_path):
     ]
 
 
+@pytest.mark.plants
 def test_the_secret_fence_rejects_assembled_credentials(tmp_path):
     # Assembled at run time on purpose. A real looking literal in this file would
     # be stopped by push protection before anyone could read the test.
@@ -784,11 +811,13 @@ def test_the_secret_fence_rejects_assembled_credentials(tmp_path):
         assert secrets_in_the_tree(tmp_path), f"{shape[:6]} slipped through"
 
 
+@pytest.mark.plants
 def test_the_secret_fence_rejects_a_versioned_environment_file(tmp_path):
     tmp_path.joinpath(".env").write_text("FENCED_LLM_API_KEY=\n", encoding="utf-8")
     assert secrets_in_the_tree(tmp_path) == [".env is under version control"]
 
 
+@pytest.mark.plants
 def test_the_provider_fence_rejects_a_name_outside_the_adapter(tmp_path):
     planted = tmp_path / "src" / "fenced" / "domain"
     planted.mkdir(parents=True)
@@ -798,6 +827,7 @@ def test_the_provider_fence_rejects_a_name_outside_the_adapter(tmp_path):
     ]
 
 
+@pytest.mark.plants
 def test_the_decision_fence_rejects_a_missing_status_and_a_broken_index(tmp_path):
     folder = tmp_path / "docs" / "adr"
     folder.mkdir(parents=True)
