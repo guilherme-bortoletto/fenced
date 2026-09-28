@@ -8,10 +8,12 @@ not ranked lower, they are out.
 
 Eligibility usually leaves more than one seller, and a pick that follows the order a
 roster happened to arrive in is a pick no test can hold. So the eligible sellers are
-put in an order written down here. The shortest segment list first, which puts a
-seller who covers one segment ahead of a seller who covers six. Then the narrowest
-ticket range, for the same reason. Then the name, which settles what is left, and
-which is why a roster cannot carry one name twice.
+put in an order written down here. It asks the same three things the filter asks, in
+the same order, and each time it asks how narrowly the seller covers that rule. The
+shortest segment list first, which puts a seller who covers one segment ahead of a
+seller who covers six. Then the narrowest ticket range. Then the shortest language
+list. Then the name, which settles what is left, and which is why a roster cannot
+carry one name twice.
 
 That order is total, so the answer is the same for the same sellers in any order, and
 the same on any machine. Nothing here opens a file, reads a clock or asks a service.
@@ -198,14 +200,24 @@ def _roster(sellers: object) -> list[Seller]:
     return list(sellers)
 
 
-def order(seller: Seller) -> tuple[int, Decimal, str]:
+def order(seller: Seller) -> tuple[int, Decimal, int, str]:
     """Where a seller sits in the written order, as the key that puts them there.
 
-    Read it as three questions asked in turn. How many segments does this seller
-    cover, how wide is their ticket range, and what is their name. The first answer
-    that differs decides, and the third one always differs.
+    Read it as four questions asked in turn. How many segments does this seller cover,
+    how wide is their ticket range, how many languages do they speak, and what is their
+    name. The first answer that differs decides, and the fourth one always differs.
+
+    The first three are the three hard rules asked a second time. The filter asks
+    whether the seller covers the rule at all, and the order asks how narrowly they
+    cover it. A seller who speaks one language is the more particular seller the same
+    way a seller who covers one segment is, so the same reason answers all three.
     """
-    return (len(seller.segments), seller.spread, seller.name.casefold())
+    return (
+        len(seller.segments),
+        seller.spread,
+        len(seller.languages),
+        seller.name.casefold(),
+    )
 
 
 def eligible(need: object, sellers: object) -> list[Seller]:

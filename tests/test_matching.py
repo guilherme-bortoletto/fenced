@@ -106,10 +106,36 @@ def test_a_narrower_ticket_range_breaks_a_tie_on_segments():
     assert match(RETAIL, [wide, narrow]) is narrow
 
 
-def test_the_name_settles_what_the_first_two_questions_left():
+def test_the_seller_who_speaks_fewer_languages_breaks_a_tie_on_segments_and_range():
+    one = seller("Zelia", languages=("pt",))
+    five = seller("Ana", languages=("pt", "en", "es", "fr", "de"))
+    assert order(one)[:2] == order(five)[:2]
+    assert match(RETAIL, [five, one]) is one
+    assert eligible(RETAIL, [five, one]) == [one, five]
+
+
+def test_the_ticket_range_is_asked_before_the_languages():
+    narrow = seller("Zoe", smallest=1500, largest=2500, languages=("pt", "en", "es"))
+    wide = seller("Ana", smallest=0, largest=10000, languages=("pt",))
+    assert match(RETAIL, [wide, narrow]) is narrow
+
+
+def test_the_segments_are_asked_before_the_languages():
+    one = seller("Zoe", segments=("retail",), languages=("pt", "en", "es"))
+    three = seller("Ana", segments=("retail", "wholesale", "public"), languages=("pt",))
+    assert match(RETAIL, [three, one]) is one
+
+
+def test_a_language_written_twice_in_two_cases_is_one_language():
+    written = seller("Ana", languages=("PT", "pt", "  Pt  "))
+    plain = seller("Bea", languages=("pt",))
+    assert order(written)[2] == order(plain)[2] == 1
+
+
+def test_the_name_settles_what_the_first_three_questions_left():
     ana = seller("Ana", smallest=1000, largest=3000)
     zoe = seller("Zoe", smallest=1000, largest=3000)
-    assert order(ana)[:2] == order(zoe)[:2]
+    assert order(ana)[:3] == order(zoe)[:3]
     assert match(RETAIL, [zoe, ana]) is ana
     assert eligible(RETAIL, [zoe, ana]) == [ana, zoe]
 
@@ -123,12 +149,12 @@ def test_the_name_is_read_without_its_case_so_the_order_is_the_same_either_way()
 def test_the_same_roster_in_any_order_picks_the_same_seller():
     roster = [
         seller("Ana", segments=("retail", "wholesale"), smallest=0, largest=10000),
-        seller("Bea", segments=("retail",), smallest=1000, largest=3000),
-        seller("Zoe", segments=("retail",), smallest=1000, largest=3000),
+        seller("Bea", segments=("retail",), smallest=1000, largest=3000, languages=("pt", "en")),
+        seller("Zoe", segments=("retail",), smallest=1000, largest=3000, languages=("pt",)),
         seller("Ivo", segments=("wholesale",)),
     ]
     picks = {match(RETAIL, list(shuffled)).name for shuffled in itertools.permutations(roster)}
-    assert picks == {"Bea"}
+    assert picks == {"Zoe"}
 
 
 def test_the_eligible_list_is_the_working_of_the_pick():
