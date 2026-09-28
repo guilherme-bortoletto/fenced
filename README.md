@@ -64,6 +64,14 @@ enough to read it off.
    and the margin table.
 8. `docs/adr/0003-a-score-is-decimal-arithmetic-over-three-dimensions.md`. Why that arithmetic is
    decimal, and why the parts stay next to the total.
+9. `src/fenced/domain/matching.py`. Who takes the lead, by three hard rules and an order
+   written down in one function.
+10. `docs/adr/0014-a-seller-is-picked-by-hard-rules-and-a-written-order.md`. Why the order is
+    written rather than left to the roster.
+11. `src/fenced/domain/playbook.py`. What happens next at each level of awareness, and how long
+    the window is.
+12. `docs/adr/0015-a-return-window-is-hours-from-the-message.md`. Why that window is hours from
+    the message and not a time of day.
 
 The rest of the domain, the ports, the adapters, the write layer and the command line arrive with
 the issues that build them, and each one gets its line here.
