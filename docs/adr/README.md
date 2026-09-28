@@ -22,3 +22,5 @@ below fails the build, and so does a row below that points at a file that is not
 | [0011 A pull request body names the issue its branch names](0011-a-body-names-the-issue-its-branch-names.md) | accepted |
 | [0012 A run names a rule only where it has something to read](0012-a-run-names-a-rule-only-where-it-has-something-to-read.md) | accepted |
 | [0013 The README is read back and a planting test says what it plants](0013-the-readme-is-read-back-and-a-planting-test-says-what-it-plants.md) | accepted |
+| [0014 A seller is picked by three hard rules and a written order](0014-a-seller-is-picked-by-hard-rules-and-a-written-order.md) | accepted |
+| [0015 A return window is hours from the message and not a time of day](0015-a-return-window-is-hours-from-the-message.md) | accepted |
