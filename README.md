@@ -72,6 +72,10 @@ enough to read it off.
     the window is.
 12. `docs/adr/0015-a-return-window-is-hours-from-the-message.md`. Why that window is hours from
     the message and not a time of day.
+13. `src/fenced/domain/reply.py`. The reply, as a template and the typed fields that fill it, with
+    every number in the text answered for by one of them.
+14. `docs/adr/0016-a-reply-is-a-template-of-typed-fields.md`. Why a value proves which source built
+    it, and what happens to a number nobody can answer for.
 
 The rest of the domain, the ports, the adapters, the write layer and the command line arrive with
 the issues that build them, and each one gets its line here.
