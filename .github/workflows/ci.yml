@@ -1,9 +1,12 @@
 name: ci
 
-# Main, a night branch, and pull requests. A pull request opened with the token a workflow
-# runs with starts no workflow run of its own, so a branch that gets its pull request from
-# pull-request.yml would carry no checks at all without the line below. A branch whose pull
-# request a person opens by hand queues both, which is the rarer case and cheap.
+# Main, a night branch, and pull requests. A pull request opened with a token that belongs to
+# a person starts a workflow run of its own, and pull-request.yml publishes with one, so a
+# night branch queues a push run and a pull request run once its pull request exists. Both
+# triggers stay. The first push of a run has no pull request yet and the checks on it are
+# worth having. And on the day the person's token expires the publisher falls back to the
+# token a workflow runs with, which starts no run of its own, and the push trigger is then
+# the only one a night branch has.
 on:
   push:
     branches: [main, "claude/**"]

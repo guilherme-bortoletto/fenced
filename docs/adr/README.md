@@ -25,3 +25,4 @@ below fails the build, and so does a row below that points at a file that is not
 | [0014 A seller is picked by three hard rules and a written order](0014-a-seller-is-picked-by-hard-rules-and-a-written-order.md) | accepted |
 | [0015 A return window is hours from the message and not a time of day](0015-a-return-window-is-hours-from-the-message.md) | accepted |
 | [0016 A reply is a template of typed fields, and every number in it names the field it came from](0016-a-reply-is-a-template-of-typed-fields.md) | accepted |
+| [0017 A pull request is published with a token that belongs to a person](0017-a-pull-request-is-published-as-a-person.md) | accepted |
