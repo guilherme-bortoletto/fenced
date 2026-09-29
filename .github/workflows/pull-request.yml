@@ -54,6 +54,21 @@ jobs:
           python rules-from-main/scripts/gates.py --text \
             .github/pull-request/title.md \
             .github/pull-request/body.md
+      # Which of the two tokens the publish reads, said out loud and without the token itself.
+      # The publisher says which account GitHub named for the token it was given. It cannot say
+      # which secret that was, because a token that is absent and a token that is present and
+      # cannot do the work both end in an account GitHub will not name, and a person reading a
+      # red job needs those two apart. The expression is a boolean and never the secret.
+      - name: which token the publish reads
+        if: steps.files.outputs.ready == 'yes'
+        env:
+          A_PERSON: ${{ secrets.PR_TOKEN != '' }}
+        run: |
+          if [ "$A_PERSON" = "true" ]; then
+            echo "the secret PR_TOKEN is set, so the publish authenticates as whoever owns it"
+          else
+            echo "the secret PR_TOKEN is not set, so the publish falls back to the workflow token"
+          fi
       - name: publish
         if: steps.files.outputs.ready == 'yes'
         # The branch name reaches the shell through the environment and never through
