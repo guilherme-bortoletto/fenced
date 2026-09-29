@@ -28,14 +28,32 @@ the token the workflow runs with.
     GITHUB_TOKEN: ${{ secrets.PR_TOKEN || secrets.GITHUB_TOKEN }}
 
 `PR_TOKEN` is a fine grained personal access token. It is scoped to this repository and to
-pull requests and to nothing else. It cannot read file contents and it cannot write them, so
-it cannot reach `main`, it cannot reach a branch, and it cannot reach a workflow file. What it
-can do is open a pull request and read one back, which is the whole of what the publisher does.
+nothing else. On this repository it holds pull requests, which it reads and writes, and file
+contents, which it only reads. What it can do is open a pull request and read one back, which
+is the whole of what the publisher does.
 
-The fallback is not politeness. A fine grained token expires. On the day it does, the fallback
-keeps the loop running, and a night run still gets a pull request with a bot as its author
-rather than no pull request at all. A loop that stops on an expiry is a loop that stops on a
-date nobody was watching.
+The read of contents is there because the create needs it. `POST /repos/{owner}/{repo}/pulls`
+answered `422 Validation Failed, not all refs are readable` until `Contents: Read` was added,
+because GitHub resolves the head ref and the base ref before it opens a pull request. Listing
+pull requests never needed that permission. The first failure was a 404 on the listing, and
+the second was a 422 on the create.
+
+So the fence is not that the token cannot read the tree. It reads the tree and it writes none
+of it, and on a public repository a read grants it nothing a stranger without a token already
+lacks. The fence is that it cannot write contents, so it cannot reach `main`, it cannot reach a
+branch, and it cannot reach a workflow file. It cannot reach any other repository. And it holds
+nothing on this one beyond pull requests.
+
+What the fallback covers is a secret that is absent. The expression reads the second operand
+when the first is the empty string, which is what a secret nobody set is. A repository that has
+no `PR_TOKEN` still opens a pull request, with the bot as its author rather than no pull request
+at all.
+
+What the fallback does not cover is an expiry. A fine grained token expires, and an expired
+token is a secret that is present. The expression hands that token over, GitHub refuses it, and
+the publish stops with no pull request. Covering that day means the publisher trying the
+person's token, reading the refusal, and falling back to the workflow token itself. This change
+does not do that. It is a decision of its own and it gets an issue of its own.
 
 What the fallback must not do is hide that it happened. So `scripts/publish.py` asks GitHub
 `GET /user` once the token is in hand, and prints the login it gets back next to what it
@@ -45,7 +63,7 @@ with a refusal, and the refusal is what gets printed, because the reason a login
 had is the answer here and not an error.
 
 That read never refuses the publish. A line that only names an account must not be the thing
-that stops the fallback from working, on the one day the fallback exists for.
+that stops a body from reaching GitHub.
 
 Why a pushed branch cannot reach the token. The job holds `pull-requests: write` and
 `contents: read`, and it runs `main`'s copy of the gate and `main`'s copy of the publisher over
