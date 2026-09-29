@@ -36,6 +36,8 @@ APPENDED = (
     "https://claude.com/claude-code",
 )
 CARRIES = "carries attribution or a session link"
+USER = "https://api.github.com/user"
+LOGIN = "a-person"
 
 
 def load_publish():
@@ -54,16 +56,28 @@ class Fake:
 
     The listing the publisher asks for first is empty here, which is a branch with no
     pull request on it yet. A test that wants the other answer passes `standing`.
+
+    The account read answers with a login. A test that wants another answer passes `who`,
+    and one that wants the answer a workflow token gets raises from a fake of its own.
     """
 
-    def __init__(self, stored: str | None = None, number: int = 7, standing: list | None = None):
+    def __init__(
+        self,
+        stored: str | None = None,
+        number: int = 7,
+        standing: list | None = None,
+        who: dict | None = None,
+    ):
         self.calls = []
         self.stored = stored
         self.number = number
         self.standing = standing or []
+        self.who = {"login": LOGIN} if who is None else who
 
     def __call__(self, method, url, payload, key):
         self.calls.append({"method": method, "url": url, "payload": payload, "key": key})
+        if method == "GET" and url == USER:
+            return self.who
         if method == "GET" and "pulls?" in url:
             return self.standing
         if method == "POST":
@@ -74,8 +88,17 @@ class Fake:
 
 
 def methods(fake) -> list[str]:
-    """What the publisher did, with the listing that opens every run left out."""
-    return [call["method"] for call in fake.calls if "pulls?" not in call["url"]]
+    """What the publisher did, with the two reads that open every run left out.
+
+    Those two are the listing of pull requests on the branch and the account the call
+    authenticated as. Both happen before anything is decided, so neither one is a step
+    a test about the body has an opinion on.
+    """
+    return [
+        call["method"]
+        for call in fake.calls
+        if "pulls?" not in call["url"] and call["url"] != USER
+    ]
 
 
 @pytest.fixture(autouse=True)
@@ -102,6 +125,7 @@ def test_the_body_that_reaches_the_wire_is_the_body_that_was_written():
         "url": "https://github.com/o/r/pull/7",
         "published": True,
         "reason": "",
+        "account": LOGIN,
     }
 
 
@@ -114,6 +138,7 @@ def test_a_branch_that_already_has_a_pull_request_gets_nothing():
         "url": "https://github.com/o/r/pull/4",
         "published": False,
         "reason": "this branch already has pull request 4",
+        "account": LOGIN,
     }
     assert methods(fake) == []
 
@@ -127,7 +152,7 @@ def test_a_closed_pull_request_on_the_branch_is_not_opened_again():
 def test_the_listing_asks_for_this_branch_and_reads_every_state():
     fake = Fake()
     opened(fake)
-    asked = fake.calls[0]["url"]
+    asked = next(call["url"] for call in fake.calls if "pulls?" in call["url"])
     assert asked.startswith("https://api.github.com/repos/o/r/pulls?")
     assert "head=o%3Aclaude%2Fissue-1" in asked
     assert "state=all" in asked
@@ -183,6 +208,61 @@ def test_a_head_branch_that_names_no_issue_is_never_sent():
         opened(fake, head="claude/a-branch-of-its-own")
     assert "does not name an issue" in str(refused.value)
     assert fake.calls == []
+
+
+# The account the call authenticated as. A squash merge takes the author of the pull
+# request, so which account opened it is what a commit on main ends up carrying. The token
+# does not say, and a run that fell back to the workflow token has to say that it did.
+
+
+def test_the_account_is_read_from_github_and_carried_back():
+    fake = Fake()
+    made = opened(fake)
+    assert made["published"] is True
+    assert made["account"] == LOGIN
+    assert [call["url"] for call in fake.calls if call["url"] == USER] == [USER]
+
+
+def test_the_account_is_read_on_the_path_that_publishes_nothing():
+    """A branch that already has a pull request still says which account asked."""
+    fake = Fake(standing=[{"number": 4, "html_url": "https://github.com/o/r/pull/4"}])
+    made = opened(fake)
+    assert made["published"] is False
+    assert made["account"] == LOGIN
+
+
+def test_a_body_written_for_another_run_reads_no_account_because_it_asks_nothing():
+    fake = Fake()
+    made = opened(fake, body="Closes #23\n\n## What\n\nOne line.\n", head="claude/issue-25")
+    assert made["account"] == ""
+    assert fake.calls == []
+
+
+def test_an_account_github_will_not_name_is_said_and_the_body_still_publishes():
+    """A workflow token belongs to nobody, and the fallback to it has to keep publishing."""
+
+    class Nameless(Fake):
+        def __call__(self, method, url, payload, key):
+            if method == "GET" and url == USER:
+                self.calls.append({"method": method, "url": url, "payload": payload, "key": key})
+                raise publish.Refused(f"GET {url} answered 403, Resource not accessible")
+            return super().__call__(method, url, payload, key)
+
+    fake = Nameless()
+    made = opened(fake)
+    assert made["published"] is True
+    assert "an account GitHub would not name" in made["account"]
+    assert "403" in made["account"]
+
+
+def test_an_answer_with_no_login_is_not_read_as_an_account():
+    fake = Fake(who={"id": 1})
+    assert opened(fake)["account"] == "an account that came back without a login"
+
+
+def test_an_account_read_that_is_not_a_dictionary_is_not_read_as_an_account():
+    fake = Fake(who=[])
+    assert opened(fake)["account"] == "an account that came back without a login"
 
 
 @pytest.mark.parametrize("line", APPENDED)
@@ -428,3 +508,51 @@ def test_a_head_branch_that_names_no_issue_turns_the_job_red(tmp_path, capsys):
     code = a_run(tmp_path, BODY, head="claude/a-branch-of-its-own")
     assert code == 1
     assert "does not name an issue" in capsys.readouterr().err
+
+
+# The line a run prints. It is the only place a reader learns which account the call
+# authenticated as, so it says so on the path that published and on the path that did not.
+
+
+def test_the_line_for_a_published_body_names_the_account(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(
+        publish,
+        "publish",
+        lambda *called, **named: {
+            "number": 7,
+            "url": "https://github.com/o/r/pull/7",
+            "published": True,
+            "reason": "",
+            "account": LOGIN,
+        },
+    )
+    assert a_run(tmp_path, BODY, head="claude/issue-1") == 0
+    printed = capsys.readouterr().out
+    assert "pull request 7" in printed
+    assert f"authenticated as {LOGIN}" in printed
+
+
+def test_the_line_for_a_run_that_published_nothing_names_the_account(
+    tmp_path, monkeypatch, capsys
+):
+    monkeypatch.setattr(
+        publish,
+        "publish",
+        lambda *called, **named: {
+            "number": 4,
+            "url": "",
+            "published": False,
+            "reason": "this branch already has pull request 4",
+            "account": LOGIN,
+        },
+    )
+    assert a_run(tmp_path, BODY, head="claude/issue-1") == 0
+    printed = capsys.readouterr().out
+    assert "already has pull request 4" in printed
+    assert f"authenticated as {LOGIN}" in printed
+
+
+def test_the_first_push_of_a_run_names_no_account_because_it_read_none(tmp_path, capsys):
+    code = a_run(tmp_path, "Closes #28\n\n## What\n\nThe run before this one.\n")
+    assert code == 0
+    assert "authenticated as" not in capsys.readouterr().out
