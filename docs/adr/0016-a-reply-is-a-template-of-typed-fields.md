@@ -68,6 +68,15 @@ A reply names nobody. A name is what the person wrote, and the person who wrote 
 three sources, so the templates address no one by name. Whatever sends the reply owns the greeting,
 where a name is a field of a lead and not a value in a rendered sentence.
 
+The check reads digits and not claims. A price written out in words carries no run of digits, so
+`unsourced_numbers` finds nothing and the reply renders. A template that writes a product name by
+hand is the same claim with the digits taken out, whether or not the catalog carries that name. So a
+template a caller supplies can still make a promise no source made, as long as it makes it in words.
+The rule was asked for numbers and it holds for numbers. Reaching further means reading the sentence,
+and a check that reads a claim written in English is a different decision from this one. A test
+plants the three cases and reads back that they render, so the limit is written where somebody meets
+it.
+
 The fence is the constructor and the builders, not the language. Nothing stops a caller from building
 a `Field` by hand with a source that is allowed to hold that name, the same way nothing stops a caller
 from building a `Lead` by hand. What is stopped is the value that claims the wrong source, the name no

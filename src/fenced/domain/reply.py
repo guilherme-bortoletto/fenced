@@ -17,6 +17,12 @@ refused. The check reads runs of digits and asks where each one came from, so a 
 quantity need no rule of their own. They pass because they came from a field and not
 because of the shape they are written in.
 
+That rule reads digits and it reads nothing else. A price written out in words carries no
+run of digits, so nothing here finds it and the text renders. A product name a template
+writes by hand is the same claim with the digits taken out. What is fenced is the field
+and the number. A claim a template makes in words is the caller's, and
+`docs/adr/0016` names that limit beside the other two.
+
 Everything here is a pure function of what is passed in. Nothing opens a file, reads a
 clock or asks a service.
 """

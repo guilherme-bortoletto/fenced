@@ -240,6 +240,30 @@ def test_text_with_no_number_in_it_needs_no_field():
     assert unsourced_numbers("Thanks for writing.", []) == []
 
 
+def test_a_claim_written_in_words_carries_no_digits_and_renders():
+    """Planted against the rule, which reads runs of digits and reads nothing else.
+
+    A price written out in words is the same claim as a price in figures with the digits
+    taken out, so no run is found and the text renders. A product name a template writes
+    by hand is that family too, whether or not the catalog carries the name. This is the
+    limit `docs/adr/0016` names under Consequences, and it is planted here so a reader
+    meets it where the rule is.
+    """
+    only_seller = {"seller": seller(PICKED)}
+    assert (
+        render("It costs forty nine euros. {seller} will write back.", only_seller)
+        == "It costs forty nine euros. Ada will write back."
+    )
+    assert (
+        render("Onboarding review is what you want. {seller} will write back.", only_seller)
+        == "Onboarding review is what you want. Ada will write back."
+    )
+    assert (
+        render("The Hyperwidget Pro suits you. {seller} will write back.", only_seller)
+        == "The Hyperwidget Pro suits you. Ada will write back."
+    )
+
+
 # The builders read their source and take no text from anybody.
 
 
