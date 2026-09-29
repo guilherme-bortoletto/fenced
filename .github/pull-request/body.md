@@ -1,105 +1,109 @@
-Closes #4
+Closes #41
 
 ## What
 
-`src/fenced/domain/reply.py` renders a reply from a template and typed fields. A `Field` carries a
-name, the text it renders as, and the `Source` that built it. `Source` is closed at three values,
-which are the catalog, the matching and the playbook. A table in the module maps each field name to
-the one source allowed to build it, so a field that claims another source is refused in the
-constructor, and a name the table does not carry does not exist at all.
+The publish step of `.github/workflows/pull-request.yml` reads its token from a repository
+secret and falls back to the token the workflow itself runs with.
 
-Five builders are the only route a field is made by, and none of them takes text from a caller.
-`product` and `price` read a row of the catalog. `quantity` counts the products the catalog carries.
-`seller` reads the name off the `Seller` the match picked. `window` reads the hours off the playbook.
+```
+GITHUB_TOKEN: ${{ secrets.PR_TOKEN || secrets.GITHUB_TOKEN }}
+```
 
-`TEMPLATES` holds one template for each action the playbook names. `render` fills one, and `reply`
-picks the template for a level of awareness and builds the window field itself from that same level,
-so the hours in the text and the action behind them cannot disagree. A template that names a field
-nothing supplied raises `MissingField`, a field the template has no place for raises `UnusedField`,
-and a name no source owns raises `UnknownField`. None of the three renders.
+`scripts/publish.py` says which account it authenticated as. It asks GitHub `GET /user` once
+the token is in hand and carries the login back with everything else it answers, and the line
+a run prints names it. That happens on the path that published and on the path that published
+nothing.
 
-`unsourced_numbers` reads the rendered text and reports every run of digits that no field produced.
-`render` refuses one with `UnsourcedNumber`. The check reads runs of digits and not shapes, so a date
-and a quantity pass because they came from a field.
+`.github/workflows/ci.yml` carried a comment saying that a pull request run was the rarer case.
+It says what is true after this change, which is that a pull request a person's token opens
+starts a run of its own, so a night branch queues a push run and a pull request run once its
+pull request exists. Both triggers stay, because the first push of a run has no pull request
+yet and the checks on it are worth having.
 
-`docs/adr/0016-a-reply-is-a-template-of-typed-fields.md` records the decision, with a line in the
-index and two lines in the README tour.
+`docs/adr/0017-a-pull-request-is-published-as-a-person.md` says what the secret is scoped to,
+that it can neither read nor write file contents, that it expires and what the fallback does on
+that day, and why a pushed branch cannot reach it.
 
 ## Why
 
-The issue asks for the reply the model does not write. A model that writes it writes a price it read
-in a message, a date nobody promised and a name nobody assigned, and none of the three is a mistake a
-test can catch, because the text is different every time.
+A squash merge takes the author of the pull request. The runner opened every pull request with
+the token the workflow runs with, so GitHub recorded `github-actions[bot]`, and seven of the
+nineteen commits on `main` carry the bot rather than the person who owns the repository.
 
-A template alone does not fix that, because a template filled from a mapping of strings carries
-whatever the caller had, and the caller is one step away from what the model returned. So a value has
-to prove which source built it, and a number in the finished text has to belong to one of those
-values. That is what the table of fields and the check on digits do.
+The branch was already right. A night run commits under the noreply address the gate requires
+and the gate refuses any other author or committer address. Only the publishing call was wrong,
+and it was wrong because a workflow token has no person behind it.
+
+The fallback is not politeness. A fine grained token expires, and on the day it does the
+fallback keeps the loop running instead of stopping it. What the fallback must not do is hide
+that it happened, which is what the account the run prints is for. A run that drops back to the
+bot without saying so is the failure this change exists to stop from happening twice.
 
 ## Tests
 
-`tests/test_reply.py` is 104 tests. A full reply renders for each of the five levels of awareness,
-and every number in it is one a field produced. A missing field, a field the template has no place
-for, a window passed in to `reply`, a template with a brace that names no field, and a template that
-is not text are each refused. A value that no source produced is refused three ways, which are a
-field claiming a source that is not allowed to build it, a field name no source owns, and a value
-that is not a `Field` at all. A number written into the template is refused, including one hidden
-inside a word. A date and a quantity pass when they came from a field and are reported when they did
-not. Every builder is read back against its source, and every template is read back to assert it
-names only fields a source can build, that it says when the person hears back, and that it writes no
-number of its own.
+Nine tests in `tests/test_publish.py`, and the transport is the fake that was already there, so
+nothing in the file reaches GitHub.
 
-The whole suite is 523 tests and passes. `python scripts/gates.py` is clean apart from the term
-rules, which no clone here has a list for. The suite was also run under Python 3.12 and Python 3.13,
-which are the two versions CI uses, because the interpreter on the machine this ran on is Python
-3.11.
+- The account is read from GitHub and carried back on the path that published.
+- The same read on the path that published nothing, which is a branch that already has a pull
+  request.
+- A body written for another run asks GitHub nothing at all, so it names no account.
+- A read GitHub refuses still publishes, and the refusal is what the account says.
+- An answer with no login, and an answer that is not a mapping at all, are neither of them read
+  as an account.
+- The line a run prints names the account for a body that published and for a run that
+  published nothing, and names none for the first push of a run.
+
+Three tests that were already there read the account field back, because the answer they assert
+on word for word now carries it, and one of them reads the listing by its url rather than by
+being the first call made.
+
+`python -m pytest` is 533 passed. `python scripts/gates.py` is clean apart from the term rules.
 
 ## Decisions I made
 
-- A reply names nobody. The issue names three sources, and the person who wrote is not one of them,
-  so a name in a reply would be text the model returned. The templates address no one by name, and
-  the greeting belongs to whatever sends the reply. The decision record says so under Consequences.
-- The check reads runs of digits and has no rule about shapes. The issue asks that a date and a
-  quantity pass because they came from a field, so provenance is the only question asked and a date
-  needs no pattern of its own. That also means no source of dates was invented, because a date needs
-  a clock and a clock is a door fence one refuses.
-- `reply` builds the window field itself instead of taking one. A caller who passes a window can pass
-  the window of another level, which would put an hour in the text that the action does not match.
-  One passed in is refused rather than replaced.
-- The catalog is read again in this module rather than shared with `scoring.py`. The two raise their
-  own refusals, because a reply that failed to render is not a score that failed to add up, and the
-  reading is four lines.
-- A field the template has no place for is refused rather than ignored. A value that silently renders
-  nowhere is a mistake in the caller, and a reply is text that leaves the building.
-- `unsourced_numbers` is public. It is the check, and a reader who wants to know what the rule
-  actually is reads it and the test that calls it directly.
+The account is read once the token is in hand, after the text gate and before the listing of
+pull requests on the branch. So the push that finds a body written for another issue names no
+account, because it returns before the token is read and asks GitHub nothing. Putting a read
+there would add a call to the one path whose point is that nothing reaches the wire, and a test
+plants that it stays that way.
+
+A read GitHub refuses is an answer and not an error. `GET /user` with a workflow token is a 403,
+and that is precisely the case the printed line exists to name, so the refusal is what gets
+printed and the publish carries on. Refusing there would stop the fallback on the one day the
+fallback exists for.
+
+No new fence reads the token line of the workflow back. The issue says `scripts/publish.py` is
+the file with behaviour to test, and the tests that hold the workflow pointed at `main`'s copy
+of the gate and of the publisher are already there. A fence that reads which secret the publish
+step names is a change of its own.
 
 ## Run notes
 
-The text rule of AGENTS.md is that no dash is used as punctuation and no semicolon, in Markdown or in
-a docstring, that sentences are short, and that the text describes what is there instead of selling
-it.
+The text rule of AGENTS.md, in one line: "No dash used as punctuation and no semicolon, in
+Markdown or in a docstring. Short sentences. Describe what is there instead of selling it."
 
-Step one found no stall. The most recent merged pull request is #39 from the night before, and there
-was no open pull request at all, so nothing was waiting on a person. Step two found no open pull
-request whose head branch starts with `claude/` and no open issue carrying `stuck`, so the brake was
-clear at a limit of one. Step three had nothing to rework. Step four picked issue #4, which was the
-only open issue labelled `night`. Its body has no `Answers` section. The branch `claude/issue-4` did
-not exist on origin and was created from `main`.
+What I did. The stall check first, and nothing was waiting. The most recent merge was earlier
+today and no pull request was open, so there was nothing for the brake to count and no issue
+carried `stuck`. Issue 41 was the only open issue labelled `night`. Two commits on
+`claude/issue-41`, pushed right after the first one, then the title and the body.
 
-Two commits. The first carried the module and its tests and was pushed straight away, which
-published nothing because the two pull request files still carried the text of the run before this
-one. The second carried the decision record, the index row and the README lines. This push carries
-the text of this run and is the last one.
+What I did not do. The seven commits already on `main` stay as they are, which the issue asks
+for. No fence on the workflow, for the reason above. And nothing anywhere holds the token or
+names a value for it.
 
-What I did not do. Nothing renders a reply outside the domain yet, because there is no adapter and
-no command line to call it from, and those are issues #6 and #5. No example catalog was added, so
-fence four still reads no product names. Nothing was changed in the fences, the gates or the
-workflows.
+One thing a person has to do. The secret `PR_TOKEN` is a setting on this repository and this
+branch cannot create it. Until it exists the fallback runs, so this pull request is opened by
+the bot and the line the job prints says which account it could not name. The change takes
+effect on the first push after the secret is added.
 
-The gates took about one and a half seconds per run, most of it the suite, and were run before each
-commit. The suite alone takes about one second. `python -m pip install -e ".[dev]"` fails on this
-machine because the default interpreter is Python 3.11 and the project asks for 3.12 or later, so
-`pytest` was installed for it on its own and the suite was run again under 3.12 and 3.13 in
-throwaway environments. The commit identity of the clone was set to the GitHub noreply address the
-gate asks for before the first commit, because the clone arrived with another one.
+The clone this ran in had a local `main` four commits behind `origin/main`, so the branch was
+first cut from the older one. It was moved onto the fetched `main` before the first commit, and
+nothing was pushed before that. None of the four commits had touched the publisher, its tests
+or either workflow.
+
+`python3` on this machine is 3.11 and carried no pytest, so the gate could not run the tests at
+first. Installing pytest for it is a machine and not this repository, and the gate was never
+passed over. The whole run of `python scripts/gates.py` takes 1.4 seconds, tests included. The
+term rules did not run, because no list of private terms was pointed at, and the run says so
+rather than calling itself clean.
