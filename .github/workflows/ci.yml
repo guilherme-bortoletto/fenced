@@ -4,9 +4,10 @@ name: ci
 # a person starts a workflow run of its own, and pull-request.yml publishes with one, so a
 # night branch queues a push run and a pull request run once its pull request exists. Both
 # triggers stay. The first push of a run has no pull request yet and the checks on it are
-# worth having. And on the day the person's token expires the publisher falls back to the
-# token a workflow runs with, which starts no run of its own, and the push trigger is then
-# the only one a night branch has.
+# worth having. And where the secret holding the person's token is absent, which is what the
+# fallback in pull-request.yml covers and nothing further, the publish is made with the token
+# a workflow runs with, which starts no run of its own, and the push trigger is then the only
+# one a night branch has.
 on:
   push:
     branches: [main, "claude/**"]

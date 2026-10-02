@@ -208,9 +208,9 @@ def account(key: str, transport) -> str:
     the history of `main` ends up carrying. A token does not say whose it is, and a workflow
     token is nobody's, so the answer comes from GitHub or it says that it could not be had.
 
-    This never refuses. The publishing call falls back to the workflow token on the day a
-    person's token expires, and a read that only names an account must not be the thing that
-    stops the fallback from publishing.
+    This never refuses. The publishing call falls back to the workflow token where the secret
+    holding the person's token is absent, and nothing further, and a read that only names an
+    account must not be the thing that stops a publish.
     """
     try:
         who = transport("GET", f"{API}/user", None, key)
