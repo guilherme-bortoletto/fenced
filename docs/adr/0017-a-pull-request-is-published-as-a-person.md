@@ -82,6 +82,17 @@ triggers in `ci.yml` stay, because the first push of a run has no pull request y
 checks on it are worth having. The comment in that file said the pull request run was the rarer
 case. It is now every case, and the comment says so.
 
+A pull request opened with a person's token is that person's pull request in places this
+change did not set out to touch. The owner can no longer request changes on one or approve
+one. `POST /pulls/{number}/reviews` with `REQUEST_CHANGES` answers `422, Review Can not
+request changes on your own pull request`. Every review before this one went to a pull
+request the bot had opened, which is why the route worked until now.
+
+The night loop survives that. Step 3 of a run asks for a review by the owner and not for a
+state, and a review posted as a comment is a review in `GET /pulls/{number}/reviews`. The
+`needs-work` label is not a review and nothing here touches it. Branch protection on this
+repository asks for no approvals, so nothing there breaks either.
+
 The seven commits already on `main` stay as they are. Changing them means rewriting a published
 history on a branch that refuses a force push, and a rewritten public history is a worse thing
 to explain to a reader than a bot author on seven old commits.
