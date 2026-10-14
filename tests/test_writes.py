@@ -351,3 +351,35 @@ def test_an_apply_whose_putting_back_fails_too_hands_both_entries_to_a_person():
     assert "a person reads both" in str(failed.value)
     assert [entry["undoes"] for entry in journal.entries()] == [None, 1]
     assert set(crm.records) == {"p1@example.com", "p2@example.com"}
+
+
+def test_undoing_a_put_back_carries_out_the_whole_entry_it_put_back():
+    crm, journal = Crm(fail_on={2}), Journal()
+    with pytest.raises(ApplyFailed) as failed:
+        apply(plan(crm, three_leads()), crm, journal, really=True)
+    assert str(failed.value) == "entry 1 stopped at change 2 of 3, and entry 2 put it back"
+    assert [len(entry["changes"]) for entry in journal.entries()] == [3, 1]
+    assert crm.records == {}
+    outcome = undo(2, crm, journal, really=True)
+    assert outcome.entry == 3
+    assert crm.records == {each.email: record_of(each) for each in three_leads()}
+    assert [len(entry["changes"]) for entry in journal.entries()] == [3, 1, 3]
+    with pytest.raises(AlreadyUndone) as refused:
+        undo(2, crm, journal, really=True)
+    assert str(refused.value) == "entry 2 is already undone by entry 3"
+    undo(1, crm, journal, really=True)
+    assert crm.records == {}
+
+
+def test_undoing_a_put_back_that_changed_nothing_still_carries_out_its_entry():
+    crm, journal = Crm(fail_on={2}), Journal()
+    apply(plan(crm, [lead()]), crm, journal, really=True)
+    with pytest.raises(ApplyFailed):
+        undo(1, crm, journal, really=True)
+    assert set(crm.records) == {"ana@example.com"}
+    outcome = undo(3, crm, journal, really=True)
+    assert outcome.entry == 4
+    assert crm.records == {}
+    with pytest.raises(AlreadyUndone) as refused:
+        undo(1, crm, journal, really=True)
+    assert str(refused.value) == "entry 1 is already undone by entry 2"

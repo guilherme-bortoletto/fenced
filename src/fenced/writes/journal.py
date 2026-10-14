@@ -75,20 +75,43 @@ def undone(entries: Sequence[Mapping[str, object]]) -> dict[int, int]:
     return found
 
 
+def intended(entries: Sequence[Mapping[str, object]], number: int) -> tuple[Change, ...]:
+    """Every change one entry set out to make, which can be more than it carries.
+
+    An entry that undoes nothing set out to make the changes it carries. An entry that
+    undoes another carries only the changes it needed, because a key that already held
+    what it wanted was left out. What it set out to do is still to put back the whole
+    entry it undoes, so that is the entry it undoes set out to make, turned around and in
+    the reverse order.
+    """
+    by_number = {entry.get("entry"): entry for entry in entries}
+    if number not in by_number:
+        raise UnknownEntry(f"the journal carries no entry {number}")
+    entry = by_number[number]
+    target = entry.get("undoes")
+    if target is None:
+        return changes_in(entry)
+    return tuple(change.inverse() for change in reversed(intended(entries, target)))
+
+
 def undo_plan(journal: Journal, number: int) -> Plan:
-    """The plan that puts back what one entry changed, read from the journal alone.
+    """The plan that puts back what one entry set out to do, read from the journal alone.
 
     The changes run in the reverse order, each one turned around, so the last change the
-    apply made is the first one put back. An entry that stands undone is refused, because
-    undoing it twice would put back a state nobody asked for. Whether it stands undone is
-    read off the chain of entries that undo it, as `undone` reads it, and not off one entry.
+    apply made is the first one put back. For an entry that undoes another, that is the
+    other entry carried out again in full, as `intended` reads it. Turning around only the
+    changes the undo carries would bring back only what it had to put back, and the chain
+    would then say the other entry stands while the store holds part of it. An entry that
+    stands undone is refused, because undoing it twice would put back a state nobody asked
+    for. Whether it stands undone is read off the chain of entries that undo it, as
+    `undone` reads it, and not off one entry. The store decides which of these changes are
+    still needed, because the executor leaves out a key that already holds what it wants.
     """
     entries = journal.entries()
-    found = [entry for entry in entries if entry.get("entry") == number]
-    if not found:
+    if not any(entry.get("entry") == number for entry in entries):
         raise UnknownEntry(f"the journal carries no entry {number}")
     undone_by = undone(entries).get(number)
     if undone_by is not None:
         raise AlreadyUndone(f"entry {number} is already undone by entry {undone_by}")
-    changes = changes_in(found[0])
+    changes = intended(entries, number)
     return Plan(tuple(change.inverse() for change in reversed(changes)), undoes=number)

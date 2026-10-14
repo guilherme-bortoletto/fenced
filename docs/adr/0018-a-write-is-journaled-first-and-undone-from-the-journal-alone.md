@@ -48,6 +48,13 @@ counts as undone when an entry undoes it and that entry is not itself undone. So
 entry 1 is written as entry 2, fails, and is put back by entry 3, entry 1 is not undone, and a
 second undo of it removes what it wrote.
 
+An entry that undoes another is undone by carrying that other entry out again, in full. Turning
+the undo entry around is not enough, because a put back carries only the changes it had to make.
+When entry 1 writes a, b and c, fails at b, and entry 2 puts back only a, turning entry 2 around
+gives back a alone. The chain would then say entry 1 stands while the store holds a. So the plan
+for undoing entry 2 is entry 1's own changes, and the executor leaves out whatever key already
+holds what it wants. After it the store holds a, b and c, and the chain and the store agree.
+
 ## Consequences
 
 Every record the store holds through this layer is one the journal carried first. A process that
