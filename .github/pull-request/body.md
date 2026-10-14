@@ -1,122 +1,88 @@
-Closes #6
+Closes #7
 
 ## What
 
-`src/fenced/ports/` gains three shapes beside the store and the journal. `Extractor` turns text
-into fields. `Clock` says the moment now as ISO 8601 text with an offset. `Inbox` lists messages,
-each one an id, the moment it arrived and the text.
+Two new decision records and three tests.
 
-`src/fenced/adapters/` is new and holds what answers them.
+`docs/adr/0020-the-model-returns-fields-and-nothing-else.md` says why the model is asked for a
+name, an address and a level of awareness and for nothing else. It links record 0016 for the
+outgoing half and covers what that record leaves out. It also says what happens to an answer that
+is not the fields. The extractor refuses an answer it cannot read as a JSON object and the run
+stops before the plan. An answer that is an object crosses `Lead.from_fields`, which hands that
+one message back and lets the rest go on. A key the boundary does not ask for is never read.
 
-- `json_crm.py` keeps the store as one JSON file of records by key, written beside itself and
-  moved into place. `json_journal.py` keeps the journal as JSON lines and waits for the disk
-  before an append returns. `json_inbox.py` reads the messages and refuses one with a missing
-  field, a repeated id or a moment with no offset.
-- `clock.py` has `SystemClock` and `FixedClock`.
-- `fake_extractor.py` reads by fixed rules. The address is the first word with an at sign, the
-  name is the last line without one, and the awareness is the first row of a table of phrases.
-- `llm_extractor.py` is the only file that names a provider. It posts to the Messages API with
-  `urllib`, asks for the three fields through a JSON schema, and reads the key from
-  `FENCED_LLM_API_KEY`. With no key it raises `MissingKey`, whose message says what is missing
-  and what runs without it.
+`docs/adr/0021-no-secret-enters-the-tree.md` says what the sixth fence catches and what it misses,
+and names the test behind each claim. It describes the second layer outside the tree, which is the
+private list of terms on the machine that writes the code and the repository secret the publisher
+reads, without naming a term or a value.
 
-`src/fenced/app/cli.py` is the command line, run as `python -m fenced` or `fenced`. `fenced run`
-reads `examples/messages.json`, prints each lead with the next step the playbook names and when
-it is due, hands back a message the boundary refuses, and prints the plan. It writes only with
-`--write`, and then names the run by its journal entry. `fenced undo N` shows the undo of run N
-and carries it out with `--write`. `examples/messages.json` holds six invented messages on the
-reserved example domains and no phone number. Five become leads and one has no address.
+`tests/test_fences.py` gains three tests marked `admits`, which plant a tree the secret fence
+accepts. A `.env.example`, a workflow that pins an action by commit, and a key assembled from
+pieces at run time. The README count of such tests goes from two to five.
 
-The README has three more tour lines and a section on the command line, and
-`docs/adr/0019-the-command-line-simulates-with-the-fake-extractor-unless-told-otherwise.md`
-records the decisions below that a reader would ask about.
+Both records are in the index.
 
 ## Why
 
-The README promised a write that is planned, shown, applied behind a flag and undone, and
-issue 5 built that against stores kept in the tests. Nothing yet reached a file, a clock or a
-model. This puts each of those behind a port, in the one folder allowed to touch them, and gives
-a person one command that runs the whole path with nothing to set up.
+Issue 7 asked for three records a reader will ask about. The Answers section of the issue says
+the numbers it named are taken, that a new record takes the next number, and that the record on
+writes already exists as 0018. It also asks that the record on secrets claim only what a test
+proves. Before this change no test proved anything the fence lets through. The three new tests
+are what lets the record name a miss rather than guess at one.
 
 ## Tests
 
-`tests/test_cli.py` has 16 tests. They run `main` end to end over the examples with the fake
-extractor, and a fixture refuses any socket, so a test that reached the network would fail.
-
-- A run simulates by default and leaves no file. It prints each lead with its step and due
-  moment, and hands back the message with no address. `--now` decides which steps are late.
-- `--write` keeps five records and one journal line, and neither file holds a line of any
-  message. A second run over the same inbox has nothing to write.
-- An undo simulates by default, takes the run back with `--write`, is refused a second time,
-  and its own undo brings the records back. An unknown run is refused.
-- `--extractor model` with no key exits 2, prints the explanation and leaves no store. A moment
-  with no offset and a broken inbox are refused before anything is written.
-- `python -m fenced run` as a process prints the same plan.
-- The examples carry no run of seven digits once separators are taken out, and every address is
-  on `example.com`, `example.org` or `example.net`.
-
-`tests/test_adapters.py` has 45 tests. The store, the journal and the inbox against their files
-and their refusals, the two clocks, the fake rules, and the write layer applied and undone
-through the two files with fresh adapters reading back. The model extractor runs with a sender
-of the test's own. The tests read the request it builds, that the key goes only in its header,
-that `FENCED_LLM_MODEL` changes the model, that seven malformed answers are refused, and that a
-refused request names the status and not the body.
-
-`python -m pytest` is 625 passed. `python scripts/gates.py` is clean apart from the term rules.
+`python -m pytest` passes with 628 tests, three more than on `main`.
+`python scripts/gates.py` reports clean apart from the term rules, which did not run because this
+machine has no list. The README check reads the new count back, so the line that says five is a
+test.
 
 ## Decisions I made
 
-The fake extractor is the default and the model needs `--extractor model`. The README says no
-command asks for a credential, and the issue asks for a test with no network.
+The record on writes is not written. Record 0018 already says why a write is planned, recorded and
+reversible, as the Answers section says.
 
-The message of a lead is always the text in the inbox. Whatever the extractor returns under that
-name is replaced, and the model is not asked to copy the text back.
+The two new records are 0020 and 0021, the next numbers after 0019.
 
-A run id is the number of the journal entry the run wrote, because that is what `undo` already
-takes. An undo that writes is a run with a number of its own.
+I added three `admits` tests rather than describe the two exemptions written into the fence from
+the code alone. The Answers section asks for claims a test proves, and the `.env.example`
+exemption and the pinned action exemption had no test. The assembled key had an indirect proof,
+because the planting test builds its shapes from pieces and the whole tree passes. It now has a
+test of its own that says so.
 
-The clock port returns ISO 8601 text and not a `datetime`, because fence one refuses `datetime`
-inside `ports/`. The command line turns the text into a moment.
+The record on secrets claims only the three shapes a test plants. The other shapes in the table
+are named as written and not claimed.
 
-The clock is used for the one thing the command line needs a time for. It reads each step's due
-moment, which is the message's arrival plus the playbook window, and marks it `late` or `open`.
+The second layer is described as the private list and the repository secret, as the Answers
+section names them. A comment in the tests mentions push protection on GitHub. I did not count it
+as part of the second layer, because nothing in this run could confirm it is on.
 
-The command line is `src/fenced/app/cli.py`, where the third fence already allowed a module to
-reach the store. It opens no file itself. The arguments, the environment and the streams are
-parameters of `main`.
-
-The model adapter asks for the default model it names at low effort, with JSON schema output
-and the provider's default fallback for a refusal. Any stop other than a finished turn is refused.
-
-Scoring, matching and the reply are not wired in. Each needs fields the extractor does not return
-yet, and that is a question for its own issue. Record 0019 says so.
+Record 0020 says the run stops before the plan when the extractor refuses an answer. That is read
+off `src/fenced/app/cli.py`. The seven refused answers are tested on the extractor, and no test of
+the command line plants one.
 
 ## Run notes
 
 The text rule of AGENTS.md, in one line: "No dash used as punctuation and no semicolon, in
 Markdown or in a docstring. Short sentences. Describe what is there instead of selling it."
 
-What I did. The stall check came first. The most recent merge is pull request 46 from earlier
+What I did. The stall check came first. The most recent merge is pull request 47 from earlier
 today, and no pull request on a `claude/` branch was open, so nothing was waiting. The brake
-counted none and no issue carried `stuck`, so there was nothing to rework. Issue 6 is the only
-open issue labelled `night`. No branch for it was on origin, so `claude/issue-6` was made from
-`main`. There were two commits, code and tests first, pushed on their own, then the README and
-record 0019, and then this title and body, which is the push that opens this pull request.
+counted zero open night pull requests and no issue carried `stuck`. No pull request carried
+`needs-work`. Issue 7 is the only open issue labelled `night`, so I took it, read its body and its
+Answers section, and did not read its comments. The branch `claude/issue-7` did not exist on
+origin, so I created it from `main`. I pushed after the first commit, which added record 0020,
+and again after the second, which added record 0021 and the three tests.
 
-What I did not do. The model extractor was never run against the provider, because this machine
-has no key and should not have one. Its request is tested and its answer is not. Nothing in the
-domain or the write layer changed, and no fence changed. No comment anywhere and no label set.
+The session that ran this was set up with a different branch name. AGENTS.md and the run
+instructions both name `claude/issue-N`, and the publisher reads the issue number off that name,
+so I worked on `claude/issue-7` and pushed nothing to the other branch.
 
-One thing on the machine, the same one the last run met. A shell command moved the working
-directory into `src/fenced/adapters`, and the commit hook looks for `scripts/gates.py` from the
-working directory, so it refused the next command. I wrote a three line file there that runs the
-real gate from the root, used it for one command to step back, and deleted it in that command.
-It was never added or committed, and the gate ran in full each time.
+What I did not do. I wrote no comment anywhere and opened no issue. I did not touch record 0018.
+I did not add a test of the command line for an extractor that refuses an answer.
 
-The machine's `python` is 3.11 and carried no pytest, so pytest was installed into it. The code
-runs on 3.11 and the CI runs 3.12 and 3.13. The git identity was set in a command of its own
-before the first commit, and both commits carry the noreply address.
+`pytest` was not installed for the interpreter `python` resolves to here. I installed it, and the
+package in editable mode, before the first run. Nothing in the tree changed for that.
 
-The gates. `python -m pytest` is 625 passed in 1.6 seconds. A full run of
-`python scripts/gates.py`, tests included, took 2.6 seconds. The term rules did not run, because
-no list of private terms was pointed at, and the run says so rather than calling itself clean.
+How long the gates took. `python -m pytest` took about 2.4 seconds and `python scripts/gates.py`
+about 2.7 seconds on each run, three runs of the gate in all.
