@@ -1,1 +1,1 @@
-writes: plan, journal, undo
+adapters and a command line

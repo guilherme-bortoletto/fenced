@@ -1,179 +1,122 @@
-Closes #5
+Closes #6
 
 ## What
 
-`src/fenced/ports/` holds two shapes and nothing else. `Crm` reads, puts and removes a record by
-key. `Journal` appends an entry and reads every entry back. Neither says where anything lives.
+`src/fenced/ports/` gains three shapes beside the store and the journal. `Extractor` turns text
+into fields. `Clock` says the moment now as ISO 8601 text with an offset. `Inbox` lists messages,
+each one an id, the moment it arrived and the text.
 
-`src/fenced/writes/` holds the four parts the issue names.
+`src/fenced/adapters/` is new and holds what answers them.
 
-- `plan.py` turns leads into a `Plan` by reading the store and writing nothing. A change is a key
-  with the record before and the record after, and `Plan.diff()` shows it one field to a line.
-  A record keeps the name, the address, the awareness and a SHA256 hash of the message.
-- `executor.py` has `apply`, which simulates unless it is called with `really=True`. A real apply
-  checks every change against the store, appends the journal entry, writes the store, and only
-  then returns. A plan whose store moved since it was read is refused before anything is written.
-- `journal.py` builds an entry out of text, lists and mappings, so an adapter can keep it as one
-  line of JSON. It reads an entry back into the plan that undoes it.
-- `undo.py` has `undo`, which builds that plan from one entry and hands it to the same `apply`.
-  So an undo is simulated by default and journaled before it writes, and an entry is undone once.
+- `json_crm.py` keeps the store as one JSON file of records by key, written beside itself and
+  moved into place. `json_journal.py` keeps the journal as JSON lines and waits for the disk
+  before an append returns. `json_inbox.py` reads the messages and refuses one with a missing
+  field, a repeated id or a moment with no offset.
+- `clock.py` has `SystemClock` and `FixedClock`.
+- `fake_extractor.py` reads by fixed rules. The address is the first word with an at sign, the
+  name is the last line without one, and the awareness is the first row of a table of phrases.
+- `llm_extractor.py` is the only file that names a provider. It posts to the Messages API with
+  `urllib`, asks for the three fields through a JSON schema, and reads the key from
+  `FENCED_LLM_API_KEY`. With no key it raises `MissingKey`, whose message says what is missing
+  and what runs without it.
 
-When a store write fails halfway, the executor undoes the entry it just wrote by that same route.
-The changes that never landed already hold what the undo wants and are left out. When the putting
-back fails as well, the error says the store holds part of two entries and hands them to a person.
+`src/fenced/app/cli.py` is the command line, run as `python -m fenced` or `fenced`. `fenced run`
+reads `examples/messages.json`, prints each lead with the next step the playbook names and when
+it is due, hands back a message the boundary refuses, and prints the plan. It writes only with
+`--write`, and then names the run by its journal entry. `fenced undo N` shows the undo of run N
+and carries it out with `--write`. `examples/messages.json` holds six invented messages on the
+reserved example domains and no phone number. Five become leads and one has no address.
 
-The third fence now refuses `put_lead` and `remove_lead` outside `writes/`. The README tour has
-three more lines, and its count of tests that plant a tree a check has to refuse is thirty eight.
-`docs/adr/0018-a-write-is-journaled-first-and-undone-from-the-journal-alone.md` records the order
-of the steps, what the journal keeps, and what a write that fails halfway leaves.
+The README has three more tour lines and a section on the command line, and
+`docs/adr/0019-the-command-line-simulates-with-the-fake-extractor-unless-told-otherwise.md`
+records the decisions below that a reader would ask about.
 
 ## Why
 
-The README already promised a write that is planned, shown as a diff, applied behind a flag,
-journaled and undone. Until now nothing in `src` did any of it.
-
-The entry is written before the store so that every record the store holds through this layer is
-one the journal carried first. The undo reads the entry and nothing else, so there is no second
-copy of a record for it to disagree with. The journal keeps a hash of the text and not the text,
-so it is not a second place a message lives.
+The README promised a write that is planned, shown, applied behind a flag and undone, and
+issue 5 built that against stores kept in the tests. Nothing yet reached a file, a clock or a
+model. This puts each of those behind a port, in the one folder allowed to touch them, and gives
+a person one command that runs the whole path with nothing to set up.
 
 ## Tests
 
-`tests/test_writes.py` has 30 tests over a store and a journal kept in memory. The fake journal
-keeps each entry as a line of JSON and reads it back, so a test reads what a file would hold.
+`tests/test_cli.py` has 16 tests. They run `main` end to end over the examples with the fake
+extractor, and a fixture refuses any socket, so a test that reached the network would fail.
 
-- Simulate. Planning writes nothing, simulating is the default, and a simulated apply touches
-  neither the store nor the journal. A create and an update are read back as their diff.
-- Apply. The journal entry is written before the first record, the entry carries the fields and
-  the hash and no word of the message, a journal that refuses the entry leaves the store as it
-  was, and a stale plan is refused before anything is written.
-- Undo. A create and an update are put back from the journal, the undo is simulated by default,
-  a journal copied line by line and never shown the apply undoes it just the same, changes go back
-  in the reverse order, an entry is undone once, and a record changed after the entry is refused.
-- Fails halfway. A write that fails at the second of three changes leaves the store as it was and
-  the journal with the entry and the entry that put it back. A failure at the first write still
-  journals the putting back, and the putting back marks itself with `put_back`. A failure that
-  hits the putting back too names both entries. An undo that fails and is put back leaves its
-  entry to be undone again, and the second undo removes the record. A put back and its attempt are
-  both refused by undo, and a failed apply is tried again by applying its plan again.
-- The line of undos. With no store failing, an entry comes back by undoing its undo, and a second
-  undo of the same entry is refused. A random walk over 200 fixed seeds and three chances of a
-  store write failing applies one to four records, then undoes any entry fifteen times. After each
-  step the store holds the records exactly when the line of undos says entry 1 stands.
+- A run simulates by default and leaves no file. It prints each lead with its step and due
+  moment, and hands back the message with no address. `--now` decides which steps are late.
+- `--write` keeps five records and one journal line, and neither file holds a line of any
+  message. A second run over the same inbox has nothing to write.
+- An undo simulates by default, takes the run back with `--write`, is refused a second time,
+  and its own undo brings the records back. An unknown run is refused.
+- `--extractor model` with no key exits 2, prints the explanation and leaves no store. A moment
+  with no offset and a broken inbox are refused before anything is written.
+- `python -m fenced run` as a process prints the same plan.
+- The examples carry no run of seven digits once separators are taken out, and every address is
+  on `example.com`, `example.org` or `example.net`.
 
-`tests/test_fences.py` has one more test that plants a call to each port method in `app/` and one
-in `writes/`, and reads back that only the first two are refused.
+`tests/test_adapters.py` has 45 tests. The store, the journal and the inbox against their files
+and their refusals, the two clocks, the fake rules, and the write layer applied and undone
+through the two files with fresh adapters reading back. The model extractor runs with a sender
+of the test's own. The tests read the request it builds, that the key goes only in its header,
+that `FENCED_LLM_MODEL` changes the model, that seven malformed answers are refused, and that a
+refused request names the status and not the body.
 
-`python -m pytest` is 564 passed. `python scripts/gates.py` is clean apart from the term rules.
+`python -m pytest` is 625 passed. `python scripts/gates.py` is clean apart from the term rules.
 
 ## Decisions I made
 
-A record keeps no message, not even in the store. The issue asks for a journal that keeps the
-fields and a hash of the text and never the text. An undo puts back what the journal holds, so a
-store that kept the message would get back a record without it. So the record is the fields and
-the hash on both sides. Where the message itself lives is a question for the adapters.
+The fake extractor is the default and the model needs `--extractor model`. The README says no
+command asks for a credential, and the issue asks for a test with no network.
 
-The text that is hashed is `Lead.message`. That is the field the domain calls what the person
-wrote, and the write layer is handed a `Lead` and never the raw input.
+The message of a lead is always the text in the inbox. Whatever the extractor returns under that
+name is replaced, and the model is not asked to copy the text back.
 
-A key is the address in lower case. Two leads in one plan that land on one key are refused rather
-than merged, because a person was shown two changes.
+A run id is the number of the journal entry the run wrote, because that is what `undo` already
+takes. An undo that writes is a run with a number of its own.
 
-A real apply leaves out a key that already holds the record after. An entry then names only the
-changes the apply made, and that is also what lets a halfway undo skip the changes that never
-landed. A plan that undoes an entry always writes an entry, even an empty one, because that entry
-is what tells the journal the first one was put back.
+The clock port returns ISO 8601 text and not a `datetime`, because fence one refuses `datetime`
+inside `ports/`. The command line turns the text into a moment.
 
-The ports live in `src/fenced/ports/`, where the third fence already expected `fenced.ports.crm`.
-The two methods that change the store are added to the names that fence refuses, with a planting
-test. The fence missed them, and closing that gap is ordinary work under AGENTS.md.
+The clock is used for the one thing the command line needs a time for. It reads each step's due
+moment, which is the message's arrival plus the playbook window, and marks it `late` or `open`.
 
-No adapter is written here. A JSON file for the store and for the journal is issue 6.
+The command line is `src/fenced/app/cli.py`, where the third fence already allowed a module to
+reach the store. It opens no file itself. The arguments, the environment and the streams are
+parameters of `main`.
+
+The model adapter asks for the default model it names at low effort, with JSON schema output
+and the provider's default fallback for a refusal. Any stop other than a finished turn is refused.
+
+Scoring, matching and the reply are not wired in. Each needs fields the extractor does not return
+yet, and that is a question for its own issue. Record 0019 says so.
 
 ## Run notes
 
 The text rule of AGENTS.md, in one line: "No dash used as punctuation and no semicolon, in
 Markdown or in a docstring. Short sentences. Describe what is there instead of selling it."
 
-Rework after the owner's review. The review found one attack that did not die. `undo_plan` read an
-entry as undone when any entry named it in `undoes`, but an entry records an attempt, and an undo
-can itself be put back. `journal.undone` now reads the chain from the last entry back, so an entry
-counts as undone when an entry undoes it and that entry is not itself undone. The review's sequence
-is planted as a test that ends with the record gone after the second `undo(1)`, and that test fails
-on the old rule with the false refusal the review quoted. Record 0018 carries the rule next to the
-paragraph about a write that fails halfway. `origin/main` was merged in and was already contained.
-The published body of this pull request still reads as it was first written, because it is never
-edited. This file carries the rework instead.
+What I did. The stall check came first. The most recent merge is pull request 46 from earlier
+today, and no pull request on a `claude/` branch was open, so nothing was waiting. The brake
+counted none and no issue carried `stuck`, so there was nothing to rework. Issue 6 is the only
+open issue labelled `night`. No branch for it was on origin, so `claude/issue-6` was made from
+`main`. There were two commits, code and tests first, pushed on their own, then the README and
+record 0019, and then this title and body, which is the push that opens this pull request.
 
-Second rework, after the owner's second review. The chain rule only holds when undoing an undo
-brings back the whole entry it undid, and it did not, because a put back carries only the changes
-it had to make. `journal.intended` now reads what an entry set out to do. For an entry that undoes
-nothing that is the changes it carries. For an entry that undoes another it is that other entry's
-intent turned around. `undo_plan` turns that intent around, so undoing a put back is the entry it
-put back carried out again in full, and the executor still leaves out a key that already holds what
-it wants. The review's sequence is planted as a test that ends with the store holding a, b and c
-after `undo(2)`. The test from the last round stays. A second new test undoes the empty put back
-from the last review directly and reads that the record goes. Record 0018 says why turning a put
-back around is not enough. `origin/main` was merged in and was already contained. The stall check
-found nothing waiting, the brake counted no pull request without `needs-work`, and no issue carried
-`stuck`. pytest was missing again and was installed into the machine. `python -m pytest` is 561
-passed in 1.0 seconds, and `python -m pytest` with `python scripts/gates.py` took 3.0 seconds
-together, clean apart from the term rules, which did not run because no list was pointed at. No
-comment was written and the only label touched is `needs-work`, taken off this pull request.
+What I did not do. The model extractor was never run against the provider, because this machine
+has no key and should not have one. Its request is tested and its answer is not. Nothing in the
+domain or the write layer changed, and no fence changed. No comment anywhere and no label set.
 
-Third rework, after the owner's third review. The chain rule let an entry be undone twice, even
-with no store failing, and then the history is a tree that cannot be read back. I followed the
-rule the review ran as a prototype. An entry carries a field `put_back`, true only for the entry the
-executor writes to put back a failed write. `journal.put_backs` and `journal.counts` read that a put
-back and its attempt stand for nothing. `journal.undone` now reads an entry as undone when an entry
-that counts undoes it, and `undo_plan` refuses an entry undone already, so that happens once. A new
-`StandsForNothing` refusal covers a put back and its attempt. `intended` is unchanged, so undoing
-an undo still carries out the whole entry it undid. The three tests the review named were changed
-as it said. The shape test carries `put_back`. The failed undo test now reads the new refusal for
-`undo(2)` and `undo(3)`. The test that carried out a put back by `undo(2)` became a test where both
-entries are refused and the plan is applied again. The test that undid an empty put back is now the
-review's ordinary path, which ends with a second `undo(2)` refused. The walk is planted with 200
-seeds for each of the chances none, fifteen and thirty in a hundred, and it takes about half a second.
-I also ran it once with 5000 seeds outside the suite and no store disagreed. With the put back field
-ignored, so that every entry counts again, the walk fails on its first seed. Record 0018 has the two
-paragraphs from the last two rounds rewritten, and a third that says why an entry undone twice
-cannot be read back. `origin/main` was merged in and was already contained. The stall check found
-nothing waiting, the brake counted no pull request without `needs-work`, and no issue carried
-`stuck`. pytest was missing again and was installed into the machine. The first command that read a
-commit through the api was refused by the hook, because the local git config still carried an
-address that is not a noreply one. I set the identity in a command of its own and read it again.
-`python -m pytest` is 564 passed in 1.7 seconds, and `python scripts/gates.py` took 2.1 seconds,
-clean apart from the term rules, which did not run because no list was pointed at. No comment was
-written and the only label touched is `needs-work`, taken off this pull request.
+One thing on the machine, the same one the last run met. A shell command moved the working
+directory into `src/fenced/adapters`, and the commit hook looks for `scripts/gates.py` from the
+working directory, so it refused the next command. I wrote a three line file there that runs the
+real gate from the root, used it for one command to step back, and deleted it in that command.
+It was never added or committed, and the gate ran in full each time.
 
-First rework gates. `python -m pytest` is 559 passed in 1.2 seconds, and `python scripts/gates.py` took
-1.4 seconds and is clean apart from the term rules, which did not run because no list was pointed
-at. pytest was again missing from the interpreter and was installed into the machine.
+The machine's `python` is 3.11 and carried no pytest, so pytest was installed into it. The code
+runs on 3.11 and the CI runs 3.12 and 3.13. The git identity was set in a command of its own
+before the first commit, and both commits carry the noreply address.
 
-What I did. The stall check came first and found nothing waiting. The most recent merge is pull
-request 42 from earlier today, and no pull request was open. So the brake counted none, no issue
-carried `stuck`, and there was nothing to rework. Issue 5 is the only open issue labelled `night`.
-No branch for it was on origin, so `claude/issue-5` was made from `main`. There were two commits
-of code, the first one pushed on its own, and then this title and body, which is the push that
-opens this pull request.
-
-What I did not do. No adapter, no command line and no change to the domain. No comment anywhere
-and no label set.
-
-One thing on the machine. A shell command moved the working directory into `src/fenced`, and the
-commit hook looks for `scripts/gates.py` from the working directory, so it refused every command
-after that. I wrote a three line file at `src/fenced/scripts/gates.py` that runs the real gate
-from the root, used it for one command to step back to the root, and deleted it in that same
-command. It was never added or committed, and the gate ran in full each time. The hook is not
-wrong, but it does depend on the working directory, which is worth knowing.
-
-The first commit was refused once by the identity rule. The local git config still carried an
-address that is not a noreply one, and setting the right one in the same command came too late,
-because the hook reads the config before the command runs. I set it in a command of its own and
-committed again, with the same message, the same files and nothing passed over.
-
-The gates. `python -m pytest` is 558 passed in 0.85 seconds. The whole run of
-`python scripts/gates.py` takes 1.6 seconds, tests included. The term rules did not run, because
+The gates. `python -m pytest` is 625 passed in 1.6 seconds. A full run of
+`python scripts/gates.py`, tests included, took 2.6 seconds. The term rules did not run, because
 no list of private terms was pointed at, and the run says so rather than calling itself clean.
-The interpreter carried no pytest, so pytest was installed into the machine before the first
-commit. That is a machine and not this repository.
