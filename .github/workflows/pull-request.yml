@@ -83,8 +83,15 @@ jobs:
         # GitHub which account it authenticated as and prints the answer on every path.
         # What the token is scoped to and why a pushed branch cannot reach it are in
         # docs/adr/0017-a-pull-request-is-published-as-a-person.md
+        #
+        # The account the pull request is meant to carry is a repository variable, because a
+        # login is public. When the author GitHub stored is another account the pull request
+        # stays open and this job turns red. A clone that never set the variable reads the
+        # empty string, and the publisher compares nothing and says so. That decision is
+        # docs/adr/0022-a-pull-request-that-carries-another-account-turns-the-job-red.md
         env:
           GITHUB_TOKEN: ${{ secrets.PR_TOKEN || secrets.GITHUB_TOKEN }}
+          PR_ACCOUNT: ${{ vars.PR_ACCOUNT }}
           OWNER: ${{ github.repository_owner }}
           REPO: ${{ github.event.repository.name }}
           BRANCH: ${{ github.ref_name }}

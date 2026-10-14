@@ -41,6 +41,13 @@ opened one is the account a commit on `main` ends up carrying. A workflow token 
 person behind it and GitHub names no account for it, and that answer is printed as well.
 A run that fell back to the workflow token says so on the line it prints.
 
+That line narrates. What is checked is the author GitHub stored on the pull request, read
+off the answer this already reads, against the account named in PR_ACCOUNT. When the two
+differ the pull request stays open and the run exits nonzero, so the work reaches review
+and the red job is what a person sees. When PR_ACCOUNT is empty nothing is compared and the
+run says so, because a clone with no secret and no variable still has to publish. That
+decision is docs/adr/0022-a-pull-request-that-carries-another-account-turns-the-job-red.md
+
 After the call the script reads the pull request back and compares it to what it sent.
 That read is a check and not a repair. When the two disagree it says so and stops, and
 the body on GitHub stays as it is, because an edit would be the second version this is
@@ -68,6 +75,9 @@ import gates  # noqa: E402  the gate lives next to this file, and scripts is not
 
 API = "https://api.github.com"
 TOKEN_NAMES = ("GITHUB_TOKEN", "GH_TOKEN")
+# The account a pull request is meant to carry. A login is public, so it is a repository
+# variable and not a secret, and a clone that never set it reads the empty string.
+EXPECTED = "PR_ACCOUNT"
 TIMEOUT = 30
 API_VERSION = "2022-11-28"
 AGENT = "fenced"
@@ -163,7 +173,7 @@ def issue_of_the_body(body: str) -> str:
 
 
 def nothing_published(
-    reason: str, number: int | None = None, url: str = "", account: str = ""
+    reason: str, number: int | None = None, url: str = "", account: str = "", author: str = ""
 ) -> dict:
     """An answer that published nothing and carries the reason, for a run that is not wrong.
 
@@ -173,6 +183,7 @@ def nothing_published(
 
     The account is carried when one was read. The push that finds a body written for another
     issue reads none, because it asks GitHub nothing at all, and the field is empty there.
+    The author is the one the standing pull request carries, and it is empty on that push too.
     """
     return {
         "number": number,
@@ -180,6 +191,7 @@ def nothing_published(
         "published": False,
         "reason": reason,
         "account": account,
+        "author": author,
     }
 
 
@@ -222,6 +234,43 @@ def account(key: str, transport) -> str:
     return "an account that came back without a login"
 
 
+def author(pull: dict) -> str:
+    """The login GitHub stored as the author of a pull request, or the empty string.
+
+    This is what a squash merge takes, so it is read off the pull request itself and not
+    off the token. An answer that carries no author reads as the empty string, which never
+    matches an account a person named.
+    """
+    user = pull.get("user") if isinstance(pull, dict) else None
+    login = user.get("login") if isinstance(user, dict) else None
+    return login.strip() if isinstance(login, str) else ""
+
+
+def expected_account() -> str:
+    """The account a pull request is meant to carry, from the environment, or the empty string."""
+    return os.environ.get(EXPECTED, "").strip()
+
+
+def carried_by(opened: dict, expected: str) -> str:
+    """Why the pull request carries the wrong account, or the empty string when it does not.
+
+    Nothing is compared on a push that found no pull request, because there is no author to
+    read, and nothing is compared when no account was named. Logins are compared without
+    case, because GitHub treats them that way.
+    """
+    if opened.get("number") is None or not expected:
+        return ""
+    who = opened.get("author", "")
+    if who.casefold() == expected.casefold():
+        return ""
+    carried = who or "no author GitHub would name"
+    return (
+        f"pull request {opened['number']} carries {carried} and not {expected}, the account "
+        f"{EXPECTED} names. It was left open, because the work is fine and an edit cannot "
+        f"change who opened it"
+    )
+
+
 def publish(
     owner: str,
     repo: str,
@@ -247,7 +296,9 @@ def publish(
     runs on what is left.
 
     The account is read once the token is in hand, so every answer that reached GitHub
-    carries the login the call authenticated as, whether it published or not.
+    carries the login the call authenticated as, whether it published or not. The author is
+    read off the pull request, the standing one or the one just stored, and asks GitHub
+    nothing it was not already asked.
     """
     named = issue_of_the_branch(head)
     closing = issue_of_the_body(body)
@@ -268,6 +319,7 @@ def publish(
             number=number,
             url=standing.get("html_url", ""),
             account=who,
+            author=author(standing),
         )
     made = transport(
         "POST",
@@ -294,6 +346,7 @@ def publish(
         "published": True,
         "reason": "",
         "account": who,
+        "author": author(stored),
     }
 
 
@@ -327,8 +380,25 @@ def main(argv: list[str]) -> int:
     named = f", authenticated as {who}" if who else ""
     if not opened["published"]:
         print(f"publish: nothing was published, {opened['reason']}{named}")
+    else:
+        print(f"publish: pull request {opened['number']} {opened['url']}{named}")
+    if opened.get("number") is None:
         return 0
-    print(f"publish: pull request {opened['number']} {opened['url']}{named}")
+    expected = expected_account()
+    if not expected:
+        print(
+            f"publish: {EXPECTED} is empty, so the account pull request {opened['number']} "
+            f"carries was not compared with anything"
+        )
+        return 0
+    wrong = carried_by(opened, expected)
+    if wrong:
+        sys.stderr.write(f"publish: {wrong}\n")
+        return 1
+    print(
+        f"publish: pull request {opened['number']} carries {expected}, the account "
+        f"{EXPECTED} names"
+    )
     return 0
 
 
