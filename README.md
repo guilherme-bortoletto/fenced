@@ -50,7 +50,7 @@ enough to read it off.
 
 ## Fifteen minute tour
 
-1. `tests/test_fences.py`. The point of the repository. Six rules, eight checks, thirty seven
+1. `tests/test_fences.py`. The point of the repository. Six rules, eight checks, thirty eight
    tests that plant a tree a check has to refuse, and two tests that plant a tree it has to
    accept.
 2. `docs/adr/0001-architecture-rules-live-in-tests.md`. Why they are tests and not a config file.
@@ -76,9 +76,15 @@ enough to read it off.
     every number in the text answered for by one of them.
 14. `docs/adr/0016-a-reply-is-a-template-of-typed-fields.md`. Why a value proves which source built
     it, and what happens to a number nobody can answer for.
+15. `src/fenced/ports/`. The record store and the journal, as the methods the write layer calls
+    and nothing about where either one lives.
+16. `src/fenced/writes/`. A write as a plan and its diff, an executor that simulates unless it is
+    told otherwise, a journal entry written before the store, and an undo read from that entry.
+17. `docs/adr/0018-a-write-is-journaled-first-and-undone-from-the-journal-alone.md`. Why the entry
+    goes first, why it keeps a hash and not the text, and what a write that fails halfway leaves.
 
-The rest of the domain, the ports, the adapters, the write layer and the command line arrive with
-the issues that build them, and each one gets its line here.
+The rest of the domain, the adapters and the command line arrive with the issues that build them,
+and each one gets its line here.
 
 ## Run it
 

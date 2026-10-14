@@ -57,7 +57,9 @@ SOURCES_OUTSIDE_THE_ARGUMENTS = {
 }
 NETWORK_NAMES = ("openai", "anthropic", "gemini", "httpx", "requests")
 LLM_ADAPTER = Path("src/fenced/adapters/llm_extractor.py")
-WRITE_CALLS = ("commit", "create_lead", "create_task")
+# The calls that persist a record. The last two are the methods of `fenced.ports.crm.Crm`
+# that change the store, so a store reached by any other route is refused by its own names.
+WRITE_CALLS = ("commit", "create_lead", "create_task", "put_lead", "remove_lead")
 CRM_MODULES = ("fenced.ports.crm", "fenced.adapters.json_crm")
 MAY_REACH_THE_CRM = ("fenced.writes", "fenced.app", "fenced.ports", "fenced.adapters.json_crm")
 PROMPT_NAMES = ("PROMPT", "SYSTEM", "INSTRUCTION")
@@ -1019,6 +1021,26 @@ def test_a_package_whose_name_merely_starts_the_same_is_not_inside_it(tmp_path):
     planted.joinpath("core.py").write_text("from fenced.ports.crm import Crm\n", encoding="utf-8")
     assert writes_outside_the_writes_package(tmp_path) == [
         "src/fenced/apple/core.py imports fenced.ports.crm.Crm"
+    ]
+
+
+@pytest.mark.plants
+def test_the_write_fence_rejects_the_port_methods_that_change_the_store(tmp_path):
+    allowed = tmp_path / "src" / "fenced" / "writes"
+    allowed.mkdir(parents=True)
+    allowed.joinpath("executor.py").write_text(
+        "def write(crm, key, record):\n    crm.put_lead(key, record)\n    crm.remove_lead(key)\n",
+        encoding="utf-8",
+    )
+    refused = tmp_path / "src" / "fenced" / "app"
+    refused.mkdir(parents=True)
+    refused.joinpath("cli.py").write_text(
+        "def write(crm, key, record):\n    crm.put_lead(key, record)\n    crm.remove_lead(key)\n",
+        encoding="utf-8",
+    )
+    assert writes_outside_the_writes_package(tmp_path) == [
+        "src/fenced/app/cli.py:2 calls put_lead",
+        "src/fenced/app/cli.py:3 calls remove_lead",
     ]
 
 
