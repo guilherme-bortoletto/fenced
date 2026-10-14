@@ -26,3 +26,4 @@ below fails the build, and so does a row below that points at a file that is not
 | [0015 A return window is hours from the message and not a time of day](0015-a-return-window-is-hours-from-the-message.md) | accepted |
 | [0016 A reply is a template of typed fields, and every number in it names the field it came from](0016-a-reply-is-a-template-of-typed-fields.md) | accepted |
 | [0017 A pull request is published with a token that belongs to a person](0017-a-pull-request-is-published-as-a-person.md) | accepted |
+| [0018 A write is journaled first and undone from the journal alone](0018-a-write-is-journaled-first-and-undone-from-the-journal-alone.md) | accepted |

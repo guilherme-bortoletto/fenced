@@ -1,147 +1,179 @@
-Closes #41
+Closes #5
 
 ## What
 
-The publish step of `.github/workflows/pull-request.yml` reads its token from a repository
-secret and falls back to the token the workflow itself runs with.
+`src/fenced/ports/` holds two shapes and nothing else. `Crm` reads, puts and removes a record by
+key. `Journal` appends an entry and reads every entry back. Neither says where anything lives.
 
-```
-GITHUB_TOKEN: ${{ secrets.PR_TOKEN || secrets.GITHUB_TOKEN }}
-```
+`src/fenced/writes/` holds the four parts the issue names.
 
-A step before it says which of the two the publish will read. It reads a boolean and never the
-secret, because a token that is absent and a token that is present and cannot do the work both
-end in an account GitHub will not name, and a person reading a red job needs those two apart.
+- `plan.py` turns leads into a `Plan` by reading the store and writing nothing. A change is a key
+  with the record before and the record after, and `Plan.diff()` shows it one field to a line.
+  A record keeps the name, the address, the awareness and a SHA256 hash of the message.
+- `executor.py` has `apply`, which simulates unless it is called with `really=True`. A real apply
+  checks every change against the store, appends the journal entry, writes the store, and only
+  then returns. A plan whose store moved since it was read is refused before anything is written.
+- `journal.py` builds an entry out of text, lists and mappings, so an adapter can keep it as one
+  line of JSON. It reads an entry back into the plan that undoes it.
+- `undo.py` has `undo`, which builds that plan from one entry and hands it to the same `apply`.
+  So an undo is simulated by default and journaled before it writes, and an entry is undone once.
 
-`scripts/publish.py` says which account it authenticated as. It asks GitHub `GET /user` once
-the token is in hand and carries the login back with everything else it answers, and the line
-a run prints names it. That happens on the path that published and on the path that published
-nothing.
+When a store write fails halfway, the executor undoes the entry it just wrote by that same route.
+The changes that never landed already hold what the undo wants and are left out. When the putting
+back fails as well, the error says the store holds part of two entries and hands them to a person.
 
-`.github/workflows/ci.yml` carried a comment saying that a pull request run was the rarer case.
-It says what is true after this change, which is that a pull request a person's token opens
-starts a run of its own, so a night branch queues a push run and a pull request run once its
-pull request exists. Both triggers stay, because the first push of a run has no pull request
-yet and the checks on it are worth having.
-
-`docs/adr/0017-a-pull-request-is-published-as-a-person.md` says what the secret is scoped to,
-which is this repository, pull requests it reads and writes, and file contents it only reads.
-It says what the fallback covers, which is a secret that is absent and not a token that expired.
-And it says why a pushed branch cannot reach the token.
+The third fence now refuses `put_lead` and `remove_lead` outside `writes/`. The README tour has
+three more lines, and its count of tests that plant a tree a check has to refuse is thirty eight.
+`docs/adr/0018-a-write-is-journaled-first-and-undone-from-the-journal-alone.md` records the order
+of the steps, what the journal keeps, and what a write that fails halfway leaves.
 
 ## Why
 
-A squash merge takes the author of the pull request. The runner opened every pull request with
-the token the workflow runs with, so GitHub recorded `github-actions[bot]`, and seven of the
-nineteen commits on `main` carry the bot rather than the person who owns the repository.
+The README already promised a write that is planned, shown as a diff, applied behind a flag,
+journaled and undone. Until now nothing in `src` did any of it.
 
-The branch was already right. A night run commits under the noreply address the gate requires
-and the gate refuses any other author or committer address. Only the publishing call was wrong,
-and it was wrong because a workflow token has no person behind it.
-
-The token reads file contents, and the record says so. The create answered `422 Validation
-Failed, not all refs are readable` until `Contents: Read` was added, because GitHub resolves the
-head ref and the base ref before it opens a pull request. Listing pull requests never needed
-that permission. So the fence is not that the token cannot read the tree. It reads the tree and
-it writes none of it, and on a public repository a read grants it nothing a stranger without a
-token already lacks. The fence is that it cannot write contents, it cannot reach any other
-repository, and it holds nothing on this one beyond pull requests.
-
-The fallback covers a secret that is absent. The expression reads the second operand when the
-first is the empty string, which is what a secret nobody set is. It does not cover an expiry. An
-expired token is a secret that is present, so the expression hands that token over, GitHub
-refuses it, and the publish stops with no pull request. Covering that day means the publisher
-trying the person's token, reading the refusal, and falling back to the workflow token itself.
-That is a decision of its own and it is not in this change.
-
-What the fallback must not do is hide that it happened, which is what the account the run prints
-is for. A run that drops back to the bot without saying so is the failure this change exists to
-stop from happening twice.
+The entry is written before the store so that every record the store holds through this layer is
+one the journal carried first. The undo reads the entry and nothing else, so there is no second
+copy of a record for it to disagree with. The journal keeps a hash of the text and not the text,
+so it is not a second place a message lives.
 
 ## Tests
 
-Nine tests in `tests/test_publish.py`, and the transport is the fake that was already there, so
-nothing in the file reaches GitHub.
+`tests/test_writes.py` has 30 tests over a store and a journal kept in memory. The fake journal
+keeps each entry as a line of JSON and reads it back, so a test reads what a file would hold.
 
-- The account is read from GitHub and carried back on the path that published.
-- The same read on the path that published nothing, which is a branch that already has a pull
-  request.
-- A body written for another run asks GitHub nothing at all, so it names no account.
-- A read GitHub refuses still publishes, and the refusal is what the account says.
-- An answer with no login, and an answer that is not a mapping at all, are neither of them read
-  as an account.
-- The line a run prints names the account for a body that published and for a run that published
-  nothing, and names none for the first push of a run.
+- Simulate. Planning writes nothing, simulating is the default, and a simulated apply touches
+  neither the store nor the journal. A create and an update are read back as their diff.
+- Apply. The journal entry is written before the first record, the entry carries the fields and
+  the hash and no word of the message, a journal that refuses the entry leaves the store as it
+  was, and a stale plan is refused before anything is written.
+- Undo. A create and an update are put back from the journal, the undo is simulated by default,
+  a journal copied line by line and never shown the apply undoes it just the same, changes go back
+  in the reverse order, an entry is undone once, and a record changed after the entry is refused.
+- Fails halfway. A write that fails at the second of three changes leaves the store as it was and
+  the journal with the entry and the entry that put it back. A failure at the first write still
+  journals the putting back, and the putting back marks itself with `put_back`. A failure that
+  hits the putting back too names both entries. An undo that fails and is put back leaves its
+  entry to be undone again, and the second undo removes the record. A put back and its attempt are
+  both refused by undo, and a failed apply is tried again by applying its plan again.
+- The line of undos. With no store failing, an entry comes back by undoing its undo, and a second
+  undo of the same entry is refused. A random walk over 200 fixed seeds and three chances of a
+  store write failing applies one to four records, then undoes any entry fifteen times. After each
+  step the store holds the records exactly when the line of undos says entry 1 stands.
 
-Three tests that were already there read the account field back, because the answer they assert
-on word for word now carries it, and one of them reads the listing by its url rather than by
-being the first call made.
+`tests/test_fences.py` has one more test that plants a call to each port method in `app/` and one
+in `writes/`, and reads back that only the first two are refused.
 
-`python -m pytest` is 533 passed. `python scripts/gates.py` is clean apart from the term rules.
+`python -m pytest` is 564 passed. `python scripts/gates.py` is clean apart from the term rules.
 
 ## Decisions I made
 
-The account is read once the token is in hand, after the text gate and before the listing of
-pull requests on the branch. So the push that finds a body written for another issue names no
-account, because it returns before the token is read and asks GitHub nothing. Putting a read
-there would add a call to the one path whose point is that nothing reaches the wire, and a test
-plants that it stays that way.
+A record keeps no message, not even in the store. The issue asks for a journal that keeps the
+fields and a hash of the text and never the text. An undo puts back what the journal holds, so a
+store that kept the message would get back a record without it. So the record is the fields and
+the hash on both sides. Where the message itself lives is a question for the adapters.
 
-A read GitHub refuses is an answer and not an error. `GET /user` with a workflow token is a 403,
-and that is precisely the case the printed line exists to name, so the refusal is what gets
-printed and the publish carries on. A line that only names an account must not be the thing that
-stops a body from reaching GitHub.
+The text that is hashed is `Lead.message`. That is the field the domain calls what the person
+wrote, and the write layer is handed a `Lead` and never the raw input.
 
-No new fence reads the token line of the workflow back. The issue says `scripts/publish.py` is
-the file with behaviour to test, and the tests that hold the workflow pointed at `main`'s copy
-of the gate and of the publisher are already there. A fence that reads which secret the publish
-step names is a change of its own.
+A key is the address in lower case. Two leads in one plan that land on one key are refused rather
+than merged, because a person was shown two changes.
 
-The expiry sentence the answers on the issue correct sits in three more places on this branch,
-and I left all three as they stand, because the answers say the code, the tests and the two
-workflow files stay as they are. They are the comment above the publish step of
-`.github/workflows/pull-request.yml`, the last sentence of the comment at the top of
-`.github/workflows/ci.yml`, and the docstring of `account` in `scripts/publish.py`. All three
-say the fallback keeps the loop running on the day the person's token expires, and the record
-next to them now says it does not. A comment can be corrected in an ordinary commit and a
-published body cannot be corrected at all, which is why the record and this body are the two
-that had to be right on this push. Correcting the three wants an issue of its own, because the
-text it would follow is the record this pull request carries.
+A real apply leaves out a key that already holds the record after. An entry then names only the
+changes the apply made, and that is also what lets a halfway undo skip the changes that never
+landed. A plan that undoes an entry always writes an entry, even an empty one, because that entry
+is what tells the journal the first one was put back.
+
+The ports live in `src/fenced/ports/`, where the third fence already expected `fenced.ports.crm`.
+The two methods that change the store are added to the names that fence refuses, with a planting
+test. The fence missed them, and closing that gap is ordinary work under AGENTS.md.
+
+No adapter is written here. A JSON file for the store and for the journal is issue 6.
 
 ## Run notes
 
 The text rule of AGENTS.md, in one line: "No dash used as punctuation and no semicolon, in
 Markdown or in a docstring. Short sentences. Describe what is there instead of selling it."
 
-What I did. The stall check first, and nothing was waiting. The most recent merge is pull request
-40 from earlier today and no pull request was open, so the brake counted none and no issue
-carried `stuck`. Issue 41 was the only open issue labelled `night`, and its body now has an
-`Answers` section, so this is a second night on a branch that was already pushed. I checked
-`claude/issue-41` out and continued from it.
+Rework after the owner's review. The review found one attack that did not die. `undo_plan` read an
+entry as undone when any entry named it in `undoes`, but an entry records an attempt, and an undo
+can itself be put back. `journal.undone` now reads the chain from the last entry back, so an entry
+counts as undone when an entry undoes it and that entry is not itself undone. The review's sequence
+is planted as a test that ends with the record gone after the second `undo(1)`, and that test fails
+on the old rule with the false refusal the review quoted. Record 0018 carries the rule next to the
+paragraph about a write that fails halfway. `origin/main` was merged in and was already contained.
+The published body of this pull request still reads as it was first written, because it is never
+edited. This file carries the rework instead.
 
-The branch carried five commits and no pull request, because the run before this one took the
-title and the body off it, and a branch that carries neither publishes nothing and leaves the
-job green. Tonight is one commit on the record, pushed on its own, and then the title and the
-body, which is the push that opens this pull request.
+Second rework, after the owner's second review. The chain rule only holds when undoing an undo
+brings back the whole entry it undid, and it did not, because a put back carries only the changes
+it had to make. `journal.intended` now reads what an entry set out to do. For an entry that undoes
+nothing that is the changes it carries. For an entry that undoes another it is that other entry's
+intent turned around. `undo_plan` turns that intent around, so undoing a put back is the entry it
+put back carried out again in full, and the executor still leaves out a key that already holds what
+it wants. The review's sequence is planted as a test that ends with the store holding a, b and c
+after `undo(2)`. The test from the last round stays. A second new test undoes the empty put back
+from the last review directly and reads that the record goes. Record 0018 says why turning a put
+back around is not enough. `origin/main` was merged in and was already contained. The stall check
+found nothing waiting, the brake counted no pull request without `needs-work`, and no issue carried
+`stuck`. pytest was missing again and was installed into the machine. `python -m pytest` is 561
+passed in 1.0 seconds, and `python -m pytest` with `python scripts/gates.py` took 3.0 seconds
+together, clean apart from the term rules, which did not run because no list was pointed at. No
+comment was written and the only label touched is `needs-work`, taken off this pull request.
 
-What the answers asked for. Two statements were false. The record said the token can neither
-read nor write file contents, and it reads them. The record said the fallback keeps the loop
-running on the day the token expires, and what it covers is an absent secret. Both passages are
-rewritten, one more sentence in the record that rested on the second one is rewritten with them,
-and neither claim is in this body.
+Third rework, after the owner's third review. The chain rule let an entry be undone twice, even
+with no store failing, and then the history is a tree that cannot be read back. I followed the
+rule the review ran as a prototype. An entry carries a field `put_back`, true only for the entry the
+executor writes to put back a failed write. `journal.put_backs` and `journal.counts` read that a put
+back and its attempt stand for nothing. `journal.undone` now reads an entry as undone when an entry
+that counts undoes it, and `undo_plan` refuses an entry undone already, so that happens once. A new
+`StandsForNothing` refusal covers a put back and its attempt. `intended` is unchanged, so undoing
+an undo still carries out the whole entry it undid. The three tests the review named were changed
+as it said. The shape test carries `put_back`. The failed undo test now reads the new refusal for
+`undo(2)` and `undo(3)`. The test that carried out a put back by `undo(2)` became a test where both
+entries are refused and the plan is applied again. The test that undid an empty put back is now the
+review's ordinary path, which ends with a second `undo(2)` refused. The walk is planted with 200
+seeds for each of the chances none, fifteen and thirty in a hundred, and it takes about half a second.
+I also ran it once with 5000 seeds outside the suite and no store disagreed. With the put back field
+ignored, so that every entry counts again, the walk fails on its first seed. Record 0018 has the two
+paragraphs from the last two rounds rewritten, and a third that says why an entry undone twice
+cannot be read back. `origin/main` was merged in and was already contained. The stall check found
+nothing waiting, the brake counted no pull request without `needs-work`, and no issue carried
+`stuck`. pytest was missing again and was installed into the machine. The first command that read a
+commit through the api was refused by the hook, because the local git config still carried an
+address that is not a noreply one. I set the identity in a command of its own and read it again.
+`python -m pytest` is 564 passed in 1.7 seconds, and `python scripts/gates.py` took 2.1 seconds,
+clean apart from the term rules, which did not run because no list was pointed at. No comment was
+written and the only label touched is `needs-work`, taken off this pull request.
 
-What I did not do. The seven commits already on `main` stay as they are, which the issue asks
-for. No code, no test and neither workflow file changed tonight, which the answers ask for, and
-the three comments that still carry the old sentence are named above. Nothing anywhere holds the
-token or names a value for it.
+First rework gates. `python -m pytest` is 559 passed in 1.2 seconds, and `python scripts/gates.py` took
+1.4 seconds and is clean apart from the term rules, which did not run because no list was pointed
+at. pytest was again missing from the interpreter and was installed into the machine.
 
-The secret. The answers say `PR_TOKEN` exists and that `Contents: Read` was added to it after a
-422 on the create, so this is the first push of a run on which the publish can authenticate as a
-person. The line the job prints names the account, and that line is where a reader sees which of
-the two tokens was read.
+What I did. The stall check came first and found nothing waiting. The most recent merge is pull
+request 42 from earlier today, and no pull request was open. So the brake counted none, no issue
+carried `stuck`, and there was nothing to rework. Issue 5 is the only open issue labelled `night`.
+No branch for it was on origin, so `claude/issue-5` was made from `main`. There were two commits
+of code, the first one pushed on its own, and then this title and body, which is the push that
+opens this pull request.
 
-The gates. `python -m pytest` is 533 passed in 1.0 seconds. The whole run of
-`python scripts/gates.py` takes 1.3 seconds, tests included. The term rules did not run, because
+What I did not do. No adapter, no command line and no change to the domain. No comment anywhere
+and no label set.
+
+One thing on the machine. A shell command moved the working directory into `src/fenced`, and the
+commit hook looks for `scripts/gates.py` from the working directory, so it refused every command
+after that. I wrote a three line file at `src/fenced/scripts/gates.py` that runs the real gate
+from the root, used it for one command to step back to the root, and deleted it in that same
+command. It was never added or committed, and the gate ran in full each time. The hook is not
+wrong, but it does depend on the working directory, which is worth knowing.
+
+The first commit was refused once by the identity rule. The local git config still carried an
+address that is not a noreply one, and setting the right one in the same command came too late,
+because the hook reads the config before the command runs. I set it in a command of its own and
+committed again, with the same message, the same files and nothing passed over.
+
+The gates. `python -m pytest` is 558 passed in 0.85 seconds. The whole run of
+`python scripts/gates.py` takes 1.6 seconds, tests included. The term rules did not run, because
 no list of private terms was pointed at, and the run says so rather than calling itself clean.
-The interpreter in this clone carried no pytest, so pytest was installed into the machine before
-the first commit. That is a machine and not this repository, and no gate was passed over.
+The interpreter carried no pytest, so pytest was installed into the machine before the first
+commit. That is a machine and not this repository.
