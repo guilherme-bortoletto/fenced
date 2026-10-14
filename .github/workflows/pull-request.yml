@@ -89,12 +89,22 @@ jobs:
         # stays open and this job turns red. A clone that never set the variable reads the
         # empty string, and the publisher compares nothing and says so. That decision is
         # docs/adr/0022-a-pull-request-that-carries-another-account-turns-the-job-red.md
+        #
+        # The two commits the push moved the branch between are handed over too. A branch
+        # with no pull request gets one only from the push that changed the body file, so
+        # a run that continues a branch does not publish, on its first push, the body the
+        # run before it wrote. They travel in the environment and not as arguments, because
+        # this file comes from the branch and the publisher comes from main, and a copy of
+        # main that predates them reads past a variable it does not know. That decision is
+        # docs/adr/0023-a-body-is-published-by-the-push-that-wrote-it.md
         env:
           GITHUB_TOKEN: ${{ secrets.PR_TOKEN || secrets.GITHUB_TOKEN }}
           PR_ACCOUNT: ${{ vars.PR_ACCOUNT }}
           OWNER: ${{ github.repository_owner }}
           REPO: ${{ github.event.repository.name }}
           BRANCH: ${{ github.ref_name }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.event.after }}
         run: |
           python rules-from-main/scripts/publish.py \
             --owner "$OWNER" \

@@ -1,102 +1,61 @@
-Closes #44
+Closes #45
 
 ## What
 
-A decision record and the check it describes.
+The publisher opens a pull request only from the push that changed `.github/pull-request/body.md`.
 
-`docs/adr/0022-a-pull-request-that-carries-another-account-turns-the-job-red.md` answers the
-question in the issue. The publisher compares the author GitHub stored on the pull request with
-the account the repository variable `PR_ACCOUNT` names. When they differ the pull request stays
-open, the publisher says which account it carries and which one was expected, and it exits 1. When
-`PR_ACCOUNT` is empty it compares nothing, says so, and exits 0. The record is in the index.
+`scripts/publish.py` reads the two commits a push moved the branch between, from `PUSH_BEFORE` and `PUSH_AFTER`. It asks GitHub for `compare/{before}...{after}` and looks for the body file among the files listed. When the file is not there it publishes nothing, prints that this push did not change the body, and exits zero. A push that creates a branch names forty zeros as the commit before it, and that push is compared against the base branch. A commit of any other shape, or a missing one, is refused and the job turns red.
 
-`scripts/publish.py` reads the author off the pull request it already reads. On the push that
-opens it, that is the read back that checks the body. On a later push, that is the listing that
-finds the pull request on the branch. It asks GitHub nothing new. It never edits the pull request.
+`.github/workflows/pull-request.yml` hands `github.event.before` and `github.event.after` to the publish step in those two variables.
 
-`.github/workflows/pull-request.yml` hands `${{ vars.PR_ACCOUNT }}` to the publish step as
-`PR_ACCOUNT`.
-
-What the three cases in the issue do now. An absent secret with `PR_ACCOUNT` set opens the pull
-request as the bot and turns the job red. An expired token stops red with no pull request, as
-before. A token that belongs to somebody else opens the pull request and turns the job red.
+Record 0023 says why, an index row points at it, and `AGENTS.md` has one sentence on it.
 
 ## Why
 
-The publisher fenced the body and only narrated the account. Two of the three cases were green,
-and a green job is a job nobody opens. The issue asked what the publisher does when the account
-is not the person, and asked that the expectation come from somewhere a clone can leave empty. A
-repository variable is that place. A login is public, so it is not a secret.
+Record 0011 stops a body that closes another issue. A run that continues a branch finds a body that closes the right issue and that the run has not touched yet. Its first push published that body. That is what nearly happened on `claude/issue-41` on 29/09. The text cannot tell the two pushes apart. The push can.
+
+The ordinary path stays as it was. The push that carries the body of a run is the push that changed the file, so it opens the pull request.
 
 ## Tests
 
-`tests/test_publish.py` gains thirteen tests. The author read off a stored pull request, off a
-standing one, and off an answer with no author. Then the run itself, through `main` with a fake
-transport. A pull request opened as the named account is green. The same login in another case is
-green. One opened as the bot, one opened as somebody else and one with no author are red, and the
-one opened as the bot was posted once and not touched again. A later push on a pull request that
-carries the bot stays red and sends nothing. An empty `PR_ACCOUNT` is green and says it compared
-nothing. The first push of a run, which opens nothing, compares nothing. Two tests read the
-workflow back, one that finds the variable handed over and one that plants its removal.
+`python -m pytest` passes 663 tests. `python scripts/gates.py` is clean apart from the term rules, which had no list to read on this machine.
 
-`python -m pytest` passes with 641 tests, thirteen more than on `main`. `python scripts/gates.py`
-reports clean apart from the term rules, which did not run because this machine has no list.
+New tests in `tests/test_publish.py` plant these cases.
+
+- A push that left the body alone publishes nothing and says why. That is the branch of issue 41.
+- A push that changed the body publishes it.
+- A push with no files listed, and a file whose path only ends like the body file, publish nothing.
+- The comparison runs from the commit before the push to the one after it.
+- A push that creates the branch is compared against `main`.
+- A branch that already has a pull request, and a body written for another issue, ask for no comparison.
+- Five commits of the wrong shape are refused before anything is sent.
+- A comparison that comes back without a list of files is refused.
+- End to end through `main`, the first push of a continuing run exits zero, and a run with no commits in the environment exits one.
+- The workflow hands over both commits from the push event and the body file the publisher looks for, and three planted workflows that drop one of them are refused.
 
 ## Decisions I made
 
-I took the first answer the issue offers. The pull request opens and the job turns red. The second
-answer, falling back to the workflow token when the person's token is refused, turns the expired
-token green with the bot as author. That is the absent secret again, which is the case the issue
-wants seen.
-
-The author compared is `user.login` on the pull request and not the login from `GET /user`. The
-stored author is what a squash merge takes, and a workflow token has no account `GET /user` will
-name.
-
-The check runs on every push that finds a pull request, not only on the push that opened it. A
-green job on a later push would sit next to a pull request that still carries the wrong account.
-
-Logins are compared without case, because GitHub treats them that way.
-
-The expected account is a repository variable and not the repository owner from the event. The
-owner is never empty, so a fork with no secret would turn red on every push. The issue asks for a
-place a clone can leave empty.
-
-An expired token keeps the behavior record 0017 describes, red with no pull request. Nothing in
-this change reaches it, and the record says so.
+- The commits reach the publisher through the environment and not as arguments. The workflow file comes from the branch and the publisher from `main`. The copy of `main` that runs on this branch does not know `--before`, and an unknown argument would have turned the job red and opened no pull request for this branch. An unknown variable is read past. `--before` and `--after` still exist and default to the two variables.
+- The check is a comparison of the push and not a comparison of the body text with the text at the commit before. The comparison needs no new error handling for a file that is absent, and it reads what the push did.
+- The comparison runs after the check for a standing pull request, so a branch that already has one gets the answer it got before and makes no extra call.
+- A missing or malformed commit is refused rather than read as a push that changed nothing. A broken workflow should be a red job and not a quiet one.
+- The body file path is a constant in the publisher, and a test reads the workflow to keep `--body-file` equal to it.
+- A push that rewrites the body byte for byte publishes nothing. A failed publish is recovered by re-running the job on the push that wrote the body. Both are written down in record 0023.
 
 ## Run notes
 
-The text rule of AGENTS.md, in one line: "No dash used as punctuation and no semicolon, in
-Markdown or in a docstring. Short sentences. Describe what is there instead of selling it."
+> No dash used as punctuation and no semicolon, in Markdown or in a docstring. Short sentences. Describe what is there instead of selling it.
 
-What I did. The stall check came first. The most recent merge is pull request 48 from earlier
-today, and no pull request on a `claude/` branch was open, so nothing was waiting. The brake
-counted zero open night pull requests, and no open issue carried `stuck`. No pull request carried
-`needs-work`. Issue 44 is the only open issue labelled `night`, so I took it and read its body,
-and not its comments. It has no Answers section. The branch `claude/issue-44` did not exist on
-origin, so I created it from `main`. I pushed after the first commit, which added record 0022, and
-again after the second, which changed the publisher, the workflow and the tests.
+Stall check found nothing. The last merge was pull request 49 today, and no `claude/` pull request was open. The brake counted zero and no issue carried `stuck`. No pull request carried `needs-work`. Issue 45 was the only open `night` issue and had no branch, so `claude/issue-45` was cut from `main`.
 
-The session that ran this was set up with a different branch name. AGENTS.md and the run
-instructions both name `claude/issue-N`, and the publisher reads the issue number off that name,
-so I worked on `claude/issue-44` and pushed nothing to the other branch.
+pytest was not installed for the interpreter the gate uses, so the first gate run reported that the tests did not run. I installed pytest and ran it again.
 
-`gh` was present but its token was refused, so every read of GitHub went through the REST tools
-this session has. I wrote nothing to GitHub except the pushes.
+The first commit was blocked by the commit hook, because the global git identity on this machine is not a GitHub noreply address and the hook reads the identity before the command that set it. I set the identity in the clone in a step of its own and committed again. No hook was skipped.
 
-The check does nothing until a person sets the repository variable `PR_ACCOUNT`, under Settings,
-Secrets and variables, Actions, Variables. Until then every publish says it compared nothing. The
-publisher that runs is `main`'s copy, so this pull request itself was published by the old one and
-was not checked.
+The first two pushes left the pull request job green, because the branch still carried the body of issue 44.
 
-What I did not do. I wrote no comment anywhere and opened no issue. I did not set `PR_ACCOUNT`. I
-did not change what happens to an expired token.
+I did not prove the comparison against GitHub itself. It was proved against a fake transport. This push is the first one that reaches it, through the copy of the publisher on `main`, which does not have it yet. The first real comparison happens on the first push after this merges.
 
-The interpreter `python` resolves to here is 3.11 and the package asks for 3.12. I ran the suite
-from a Python 3.13 environment outside the tree. The commit hook calls `python3`, which is the
-3.11 one, so I installed `pytest` for it as well. The suite passes under both. Nothing in the tree
-changed for that.
+I did not run the term rules, because no list was on this machine.
 
-How long the gates took. `python -m pytest` took about 2.0 seconds and `python scripts/gates.py`
-about 2.5 seconds on each run, four runs of the gate in all, plus the hook on each commit and push.
+The gates took between 2.4 and 2.9 seconds a run, over seven runs.

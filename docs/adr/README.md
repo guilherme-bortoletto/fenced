@@ -31,3 +31,4 @@ below fails the build, and so does a row below that points at a file that is not
 | [0020 The model returns fields and nothing else](0020-the-model-returns-fields-and-nothing-else.md) | accepted |
 | [0021 No secret enters the tree, and what the fence on it does not see](0021-no-secret-enters-the-tree.md) | accepted |
 | [0022 A pull request that carries another account is opened and then turns the job red](0022-a-pull-request-that-carries-another-account-turns-the-job-red.md) | accepted |
+| [0023 A pull request body is published by the push that changed it](0023-a-body-is-published-by-the-push-that-wrote-it.md) | accepted |
