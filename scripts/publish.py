@@ -29,6 +29,14 @@ case is a red a reader learns to walk past. Two things stay loud, because neithe
 happens on an ordinary push. A body that does not open with `Closes #N` at all, and a
 head branch that names no issue.
 
+A number that agrees is not enough on its own. A run may continue a branch that already
+wrote its own body, and the first push of that run carries a body naming the right issue
+that the run has not touched yet. So before it posts this also asks GitHub whether the push
+it runs for changed the body file, comparing the commit before the push with the commit after
+it. A push that left the body as it was publishes nothing, says so and exits zero. A push
+that creates the branch is compared against the base branch instead, because there is no
+commit before it. That decision is docs/adr/0023-a-body-is-published-by-the-push-that-wrote-it.md
+
 Before it posts it asks GitHub whether the branch already has a pull request. A branch
 is pushed many times in one run and the workflow runs on each push. The push that
 carries this run's own body opens the pull request. Every push after it publishes
@@ -86,6 +94,17 @@ AGENT = "fenced"
 # number. Two readings of one number, and they agree only on text written for this run.
 BRANCH_ISSUE = re.compile(r"^claude/issue-(\d+)$")
 BODY_ISSUE = re.compile(r"^Closes #(\d+)$")
+# The file a run writes its body into, as a path in the repository. The workflow hands the
+# publisher this file, and a push that did not change it did not write the body it holds.
+BODY_PATH = ".github/pull-request/body.md"
+# A commit as a push event names it. A push that creates a branch names no commit before it
+# and sends forty zeros in its place.
+COMMIT = re.compile(r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$")
+NO_COMMIT = re.compile(r"^0+$")
+# Where the workflow hands the two commits over. The workflow comes from the branch and this
+# file comes from main, so they travel in the environment, which an older copy reads past.
+PUSHED_FROM = "PUSH_BEFORE"
+PUSHED_TO = "PUSH_AFTER"
 
 
 class Refused(Exception):
@@ -177,9 +196,10 @@ def nothing_published(
 ) -> dict:
     """An answer that published nothing and carries the reason, for a run that is not wrong.
 
-    Two pushes reach here on an ordinary run. The one before this run wrote its own body,
-    which still carries the body of the run before it, and every push after the one that
-    opened the pull request. Neither is a mistake, so neither is an error.
+    Three pushes reach here on an ordinary run. The one before this run wrote its own body,
+    which still carries the body of the run before it. The first push of a run that continues
+    a branch, which carries a body the run has not written yet. And every push after the one
+    that opened the pull request. None of them is a mistake, so none of them is an error.
 
     The account is carried when one was read. The push that finds a body written for another
     issue reads none, because it asks GitHub nothing at all, and the field is empty there.
@@ -193,6 +213,44 @@ def nothing_published(
         "account": account,
         "author": author,
     }
+
+
+def commit(name: str, value: str) -> str:
+    """One commit the push event named, refusing anything that is not a commit.
+
+    Both ends of the push go into a URL, so a value of any other shape is refused rather
+    than sent, and a missing one is refused rather than read as no change at all.
+    """
+    value = value.strip()
+    if not COMMIT.match(value):
+        raise Refused(
+            f"the commit {name} the push is {value!r}, which is not a commit, so which files "
+            f"the push changed cannot be read and nothing was published"
+        )
+    return value
+
+
+def wrote_the_body(
+    owner: str, repo: str, base: str, before: str, after: str, key: str, transport
+) -> bool:
+    """Whether the push this runs for changed the body file.
+
+    A push moves a branch from one commit to another, and GitHub names both. When the body
+    file differs between the two, the push carries a body somebody wrote in it. When it
+    does not, the body was there before the push and the push is not the one that wrote it.
+
+    A push that creates a branch names forty zeros as the commit before it. That branch is
+    compared against the base it was cut from, so a body written before the first push
+    still counts as written by it.
+    """
+    after = commit("after", after)
+    start = base if NO_COMMIT.match(before.strip()) else commit("before", before)
+    span = f"{urllib.parse.quote(start, safe='')}...{after}"
+    compared = transport("GET", f"{API}/repos/{owner}/{repo}/compare/{span}", None, key)
+    files = compared.get("files") if isinstance(compared, dict) else None
+    if not isinstance(files, list):
+        raise Refused(f"the comparison {span} came back without a list of files, {compared}")
+    return any(isinstance(one, dict) and one.get("filename") == BODY_PATH for one in files)
 
 
 def as_sent(text: str) -> str:
@@ -280,6 +338,9 @@ def publish(
     body: str,
     terms: list[str],
     transport=send,
+    *,
+    before: str,
+    after: str,
 ) -> dict:
     """Create the pull request, then read it back and check it word for word.
 
@@ -294,6 +355,10 @@ def publish(
     run's text at all, and no text rule can tell. Such a body publishes nothing and says
     why, the same answer a branch that already has a pull request gets. The gate then
     runs on what is left.
+
+    A branch with no pull request then gets one only from the push that changed the body
+    file. A push that left it alone is the first push of a run that continues a branch, and
+    the body it finds is the one the run before it wrote. That publishes nothing and says why.
 
     The account is read once the token is in hand, so every answer that reached GitHub
     carries the login the call authenticated as, whether it published or not. The author is
@@ -320,6 +385,12 @@ def publish(
             url=standing.get("html_url", ""),
             account=who,
             author=author(standing),
+        )
+    if not wrote_the_body(owner, repo, base, before, after, key, transport):
+        return nothing_published(
+            f"this push did not change {BODY_PATH}, so the body it holds was written by an "
+            f"earlier push and is not published by this one",
+            account=who,
         )
     made = transport(
         "POST",
@@ -358,6 +429,16 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--base", default="main")
     parser.add_argument("--title-file", required=True, metavar="FILE")
     parser.add_argument("--body-file", required=True, metavar="FILE")
+    parser.add_argument(
+        "--before",
+        default=os.environ.get(PUSHED_FROM, ""),
+        help=f"the commit the branch was at before the push, {PUSHED_FROM} when not given",
+    )
+    parser.add_argument(
+        "--after",
+        default=os.environ.get(PUSHED_TO, ""),
+        help=f"the commit the push moved the branch to, {PUSHED_TO} when not given",
+    )
     parser.add_argument("--terms-file", metavar="PATH", help="a private list of terms to refuse")
     args = parser.parse_args(argv)
 
@@ -368,7 +449,15 @@ def main(argv: list[str]) -> int:
         if not title:
             raise Refused("the title file is empty")
         opened = publish(
-            args.owner, args.repo, args.head, args.base, title, body, terms
+            args.owner,
+            args.repo,
+            args.head,
+            args.base,
+            title,
+            body,
+            terms,
+            before=args.before,
+            after=args.after,
         )
     except Refused as refused:
         sys.stderr.write(f"publish: refused\n{refused}\n")

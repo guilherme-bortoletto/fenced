@@ -5,6 +5,8 @@ reached the wire. A body that breaks a text rule must not be sent at all. A body
 came back changed must not be repaired, because the repair is the second version that
 the history of the body keeps for good. A branch that already has a pull request gets
 nothing at all, because the workflow that calls this runs on every push to the branch.
+A push that did not change the body file gets nothing either, because the body it finds
+was written by an earlier push, and on a branch a run continues that is the run before it.
 A body that closes an issue the head branch does not name belongs to another run, and
 the text rules cannot tell, because that text was written to pass them. That one is not
 a refusal. It is the first push of every run, so it publishes nothing, says why and
@@ -38,6 +40,10 @@ APPENDED = (
 CARRIES = "carries attribution or a session link"
 USER = "https://api.github.com/user"
 LOGIN = "a-person"
+BEFORE = "a" * 40
+AFTER = "b" * 40
+NONE_BEFORE = "0" * 40
+COMPARE = "/compare/"
 
 
 def load_publish():
@@ -62,6 +68,9 @@ class Fake:
 
     The pull request it reads back carries no author unless a test passes `author`, which
     is the login GitHub stored as the one who opened it.
+
+    The comparison of the push names the body file among the files it changed, which is the
+    push that wrote the body. A test that wants a push that left it alone passes `changed`.
     """
 
     def __init__(
@@ -71,6 +80,7 @@ class Fake:
         standing: list | None = None,
         who: dict | None = None,
         author: str | None = None,
+        changed: object = None,
     ):
         self.calls = []
         self.stored = stored
@@ -78,6 +88,9 @@ class Fake:
         self.standing = standing or []
         self.who = {"login": LOGIN} if who is None else who
         self.author = author
+        self.changed = (
+            {"files": [{"filename": publish.BODY_PATH}]} if changed is None else changed
+        )
 
     def __call__(self, method, url, payload, key):
         self.calls.append({"method": method, "url": url, "payload": payload, "key": key})
@@ -85,6 +98,8 @@ class Fake:
             return self.who
         if method == "GET" and "pulls?" in url:
             return self.standing
+        if method == "GET" and COMPARE in url:
+            return self.changed
         if method == "POST":
             self.sent = (payload or {}).get("body")
             return {"number": self.number, "html_url": f"https://github.com/o/r/pull/{self.number}"}
@@ -96,16 +111,16 @@ class Fake:
 
 
 def methods(fake) -> list[str]:
-    """What the publisher did, with the two reads that open every run left out.
+    """What the publisher did, with the reads that come before any decision left out.
 
-    Those two are the listing of pull requests on the branch and the account the call
-    authenticated as. Both happen before anything is decided, so neither one is a step
-    a test about the body has an opinion on.
+    Those are the listing of pull requests on the branch, the account the call authenticated
+    as, and the comparison of the push. None of them is a step a test about the body has an
+    opinion on.
     """
     return [
         call["method"]
         for call in fake.calls
-        if "pulls?" not in call["url"] and call["url"] != USER
+        if "pulls?" not in call["url"] and call["url"] != USER and COMPARE not in call["url"]
     ]
 
 
@@ -116,10 +131,16 @@ def a_token(monkeypatch):
     monkeypatch.delenv("GH_TOKEN", raising=False)
     monkeypatch.delenv("FENCED_TERMS_FILE", raising=False)
     monkeypatch.delenv("PR_ACCOUNT", raising=False)
+    monkeypatch.setenv("PUSH_BEFORE", BEFORE)
+    monkeypatch.setenv("PUSH_AFTER", AFTER)
 
 
-def opened(transport, title=TITLE, body=BODY, terms=(), head="claude/issue-1"):
-    return publish.publish("o", "r", head, "main", title, body, list(terms), transport)
+def opened(
+    transport, title=TITLE, body=BODY, terms=(), head="claude/issue-1", before=BEFORE, after=AFTER
+):
+    return publish.publish(
+        "o", "r", head, "main", title, body, list(terms), transport, before=before, after=after
+    )
 
 
 def test_the_body_that_reaches_the_wire_is_the_body_that_was_written():
@@ -219,6 +240,100 @@ def test_a_head_branch_that_names_no_issue_is_never_sent():
         opened(fake, head="claude/a-branch-of-its-own")
     assert "does not name an issue" in str(refused.value)
     assert fake.calls == []
+
+
+# The push that wrote the body. A run may continue a branch that already carries its own
+# body, and the first push of that run finds a body naming the right issue that nobody has
+# reread. Only the push that changed the body file opens a pull request.
+# That decision is docs/adr/0023-a-body-is-published-by-the-push-that-wrote-it.md
+
+LEFT_ALONE = {"files": [{"filename": "scripts/publish.py"}]}
+
+
+def compared(fake) -> list[str]:
+    return [call["url"] for call in fake.calls if COMPARE in call["url"]]
+
+
+def test_a_push_that_left_the_body_alone_publishes_nothing_and_says_why():
+    """The branch of issue 41 on 29/09, whose body named its own issue and had no pull request."""
+    fake = Fake(changed=LEFT_ALONE)
+    made = opened(fake)
+    assert made["published"] is False
+    assert made["number"] is None
+    assert f"this push did not change {publish.BODY_PATH}" in made["reason"]
+    assert made["account"] == LOGIN
+    assert methods(fake) == []
+
+
+def test_a_push_that_changed_the_body_publishes_it():
+    fake = Fake()
+    assert opened(fake)["published"] is True
+    assert methods(fake) == ["POST", "GET"]
+
+
+def test_a_push_with_no_files_at_all_publishes_nothing():
+    fake = Fake(changed={"files": []})
+    assert opened(fake)["published"] is False
+    assert methods(fake) == []
+
+
+def test_a_file_whose_name_only_ends_like_the_body_is_not_the_body():
+    fake = Fake(changed={"files": [{"filename": f"docs/{publish.BODY_PATH}"}]})
+    assert opened(fake)["published"] is False
+
+
+def test_the_comparison_runs_from_the_commit_before_the_push_to_the_one_after():
+    fake = Fake()
+    opened(fake)
+    assert compared(fake) == [f"https://api.github.com/repos/o/r/compare/{BEFORE}...{AFTER}"]
+
+
+def test_a_push_that_creates_the_branch_is_compared_against_the_base():
+    """A branch pushed for the first time names forty zeros as the commit before it."""
+    fake = Fake()
+    assert opened(fake, before=NONE_BEFORE)["published"] is True
+    assert compared(fake) == [f"https://api.github.com/repos/o/r/compare/main...{AFTER}"]
+
+
+def test_a_branch_that_already_has_a_pull_request_is_not_compared():
+    fake = Fake(standing=[{"number": 4, "html_url": ""}], changed=LEFT_ALONE)
+    assert opened(fake)["reason"] == "this branch already has pull request 4"
+    assert compared(fake) == []
+
+
+def test_a_body_written_for_another_run_is_not_compared():
+    fake = Fake()
+    opened(fake, body="Closes #23\n\n## What\n\nOne line.\n", head="claude/issue-25")
+    assert fake.calls == []
+
+
+@pytest.mark.parametrize(
+    ("before", "after"),
+    [
+        ("", AFTER),
+        (BEFORE, ""),
+        ("main", AFTER),
+        (BEFORE, "../../pulls"),
+        (BEFORE, "B" * 40),
+    ],
+)
+def test_a_commit_that_is_not_a_commit_is_never_sent(before, after):
+    """Both ends go into a URL, and a missing one is not read as a push that changed nothing."""
+    fake = Fake()
+    with pytest.raises(publish.Refused) as refused:
+        opened(fake, before=before, after=after)
+    assert "which is not a commit" in str(refused.value)
+    assert compared(fake) == []
+    assert methods(fake) == []
+
+
+@pytest.mark.parametrize("answer", [{}, {"files": "a string"}, []])
+def test_a_comparison_without_a_list_of_files_is_refused(answer):
+    fake = Fake(changed=answer)
+    with pytest.raises(publish.Refused) as refused:
+        opened(fake)
+    assert "without a list of files" in str(refused.value)
+    assert methods(fake) == []
 
 
 # The account the call authenticated as. A squash merge takes the author of the pull
@@ -335,6 +450,8 @@ def test_the_line_endings_github_stores_are_not_a_disagreement():
 def test_an_answer_with_no_number_is_refused():
     class Empty(Fake):
         def __call__(self, method, url, payload, key):
+            if COMPARE in url:
+                return super().__call__(method, url, payload, key)
             self.calls.append({"method": method, "url": url, "payload": payload, "key": key})
             return [] if "pulls?" in url else {}
 
@@ -584,7 +701,7 @@ def a_run_against(tmp_path, monkeypatch, fake, head="claude/issue-1"):
     monkeypatch.setattr(
         publish,
         "publish",
-        lambda *called: original(*called, transport=fake),
+        lambda *called, **named: original(*called, transport=fake, **named),
     )
     return a_run(tmp_path, BODY, head=head)
 
@@ -677,6 +794,28 @@ def test_the_first_push_of_a_run_compares_nothing(tmp_path, monkeypatch, capsys)
     assert printed.err == ""
 
 
+def test_the_first_push_of_a_continuing_run_leaves_the_job_green(
+    tmp_path, monkeypatch, capsys
+):
+    """The commits come from the environment, which is where the workflow puts them."""
+    monkeypatch.setenv("PR_ACCOUNT", LOGIN)
+    fake = Fake(changed=LEFT_ALONE)
+    assert a_run_against(tmp_path, monkeypatch, fake) == 0
+    printed = capsys.readouterr()
+    assert "this push did not change" in printed.out
+    assert printed.err == ""
+    assert compared(fake) == [f"https://api.github.com/repos/o/r/compare/{BEFORE}...{AFTER}"]
+
+
+def test_a_run_with_no_commits_in_the_environment_turns_the_job_red(
+    tmp_path, monkeypatch, capsys
+):
+    monkeypatch.delenv("PUSH_BEFORE")
+    monkeypatch.delenv("PUSH_AFTER")
+    assert a_run_against(tmp_path, monkeypatch, Fake()) == 1
+    assert "which is not a commit" in capsys.readouterr().err
+
+
 ACCOUNT_FROM_A_VARIABLE = "PR_ACCOUNT: ${{ vars.PR_ACCOUNT }}"
 
 
@@ -699,3 +838,51 @@ def test_the_publish_step_hands_over_the_account_to_expect():
 def test_a_publish_step_that_drops_the_account_is_refused():
     planted = WORKFLOW.read_text(encoding="utf-8").replace(ACCOUNT_FROM_A_VARIABLE, "")
     assert the_account_is_not_handed_over(planted)
+
+
+# The two commits a push moved the branch between. They travel in the environment, because
+# the workflow comes from the branch and the publisher from main, and an older publisher
+# reads past a variable it does not know where it would refuse an argument.
+
+PUSH_FROM_THE_EVENT = (
+    "PUSH_BEFORE: ${{ github.event.before }}",
+    "PUSH_AFTER: ${{ github.event.after }}",
+)
+BODY_FILE = re.compile(r"--body-file\s+(\S+)")
+
+
+def the_push_is_not_handed_over(text: str) -> list[str]:
+    """Every reason the publisher could not read which push it runs for, or which file it wrote.
+
+    The publisher compares the two commits of the push and looks for its own path to the body
+    file among the files that changed. A step that hands it another file, or drops either
+    commit, leaves that comparison reading something other than the push.
+    """
+    lines = [line for line in text.splitlines() if not line.lstrip().startswith("#")]
+    step = "\n".join(lines)
+    found = [
+        f"the publish step does not hand over {one}"
+        for one in PUSH_FROM_THE_EVENT
+        if one not in step
+    ]
+    files = BODY_FILE.findall(step)
+    if files != [publish.BODY_PATH]:
+        found.append(f"the publish step hands the publisher the body files {files}")
+    return found
+
+
+def test_the_publish_step_hands_over_the_push_and_the_body_file():
+    assert the_push_is_not_handed_over(WORKFLOW.read_text(encoding="utf-8")) == []
+
+
+@pytest.mark.parametrize("line", PUSH_FROM_THE_EVENT)
+def test_a_publish_step_that_drops_a_commit_of_the_push_is_refused(line):
+    planted = WORKFLOW.read_text(encoding="utf-8").replace(line, "")
+    assert the_push_is_not_handed_over(planted)
+
+
+def test_a_publish_step_that_hands_over_another_body_file_is_refused():
+    planted = WORKFLOW.read_text(encoding="utf-8").replace(
+        f"--body-file {publish.BODY_PATH}", "--body-file body.md"
+    )
+    assert "body files" in "\n".join(the_push_is_not_handed_over(planted))
