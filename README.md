@@ -5,8 +5,10 @@ A small Python service whose architecture is enforced by tests, not by the READM
 The rules below are not advice. They are `tests/test_fences.py`. They run in CI on every push, and
 again before every commit an agent makes in here, through the hook in `.claude/settings.json`.
 
-Skeleton stage. The fences are in and green. The domain arrives one issue at a time, and the
-sections below grow with it.
+The fences are in and green, and the domain sits behind them. The command line reads invented
+messages, turns each one into a lead, names its next step and when it is due, and plans the write
+that records it. Scoring, matching and the reply are domain code with their own tests, and the
+command line does not call them yet.
 
 ## Why
 
@@ -83,7 +85,6 @@ enough to read it off.
     told otherwise, a journal entry written before the store, and an undo read from that entry.
 17. `docs/adr/0018-a-write-is-journaled-first-and-undone-from-the-journal-alone.md`. Why the entry
     goes first, why it keeps a hash and not the text, and what a write that fails halfway leaves.
-
 18. `src/fenced/adapters/`. The outside world. The store and the journal as files, the inbox,
     a clock, a fake extractor that reads by fixed rules, and `llm_extractor.py`, the only file
     that names a model provider.
@@ -92,8 +93,35 @@ enough to read it off.
     `--write`, and `fenced undo N` takes a run back by the number it was written as.
 20. `docs/adr/0019-the-command-line-simulates-with-the-fake-extractor-unless-told-otherwise.md`.
     Why the default run needs no key, why the message is never the model's, and what a run id is.
+21. `docs/adr/0020-the-model-returns-fields-and-nothing-else.md`. Why the model is asked for
+    three fields and nothing more.
+22. `docs/adr/0021-no-secret-enters-the-tree.md`. What the fence on secrets catches and what it
+    misses, each as far as a named test proves it.
+23. `SECURITY.md`. How to report a problem, and what this repository promises about secrets and
+    data.
+24. `AGENTS.md`. The rules an agent works under in here, from what never enters the tree to
+    the shape of a pull request.
+25. `.github/workflows/pull-request.yml`. The job that opens a pull request from a runner, with
+    the text the branch carries and the rules `main` carries.
+26. `scripts/publish.py`. The one way a pull request body leaves this repository, once and never
+    edited.
+27. `docs/adr/0008-a-pull-request-is-opened-from-a-workflow-runner.md`. Why that call is made
+    from a runner and not from the machine the code is written on.
 
-What is still missing arrives with the issue that builds it, and gets its line here.
+A new file gets its line here with the pull request that adds it.
+
+## How the work happens
+
+1. Issues the owner labels `night` are the backlog, and the owner decides what enters it.
+2. A routine, started on a schedule or by hand, takes the lowest one, writes the code on a
+   branch and opens one pull request.
+3. The gates run on every commit and on every pull request body. What fails them does not go
+   through.
+4. A second agent session reviews each pull request, and either sends it back with
+   `needs-work` or merges it.
+5. An agent writes the code and another agent reviews and merges it. No person reviews every
+   pull request. The owner writes the rules in `AGENTS.md` and in the routine's instructions,
+   and can stop the loop at any time.
 
 ## Run it
 
@@ -102,6 +130,10 @@ python -m pip install -e ".[dev]"
 python -m pytest
 python scripts/gates.py
 ```
+
+The install is the one step that reaches the network, once, for `pytest` and the build backend. Everything after it
+runs offline. The command line also runs straight from the clone with nothing installed, as
+`PYTHONPATH=src python -m fenced run`.
 
 The command line, over the invented messages in `examples/`.
 
