@@ -39,7 +39,7 @@ so it is not a second place a message lives.
 
 ## Tests
 
-`tests/test_writes.py` has 27 tests over a store and a journal kept in memory. The fake journal
+`tests/test_writes.py` has 30 tests over a store and a journal kept in memory. The fake journal
 keeps each entry as a line of JSON and reads it back, so a test reads what a file would hold.
 
 - Simulate. Planning writes nothing, simulating is the default, and a simulated apply touches
@@ -52,15 +52,19 @@ keeps each entry as a line of JSON and reads it back, so a test reads what a fil
   in the reverse order, an entry is undone once, and a record changed after the entry is refused.
 - Fails halfway. A write that fails at the second of three changes leaves the store as it was and
   the journal with the entry and the entry that put it back. A failure at the first write still
-  journals the putting back. A failure that hits the putting back too names both entries. An
-  undo that fails and is put back leaves its entry to be undone again, and the second undo removes
-  the record. Undoing a put back carries out the whole entry it put back, so after a write of a, b
-  and c fails at b and is put back, undoing the put back leaves the store holding a, b and c.
+  journals the putting back, and the putting back marks itself with `put_back`. A failure that
+  hits the putting back too names both entries. An undo that fails and is put back leaves its
+  entry to be undone again, and the second undo removes the record. A put back and its attempt are
+  both refused by undo, and a failed apply is tried again by applying its plan again.
+- The line of undos. With no store failing, an entry comes back by undoing its undo, and a second
+  undo of the same entry is refused. A random walk over 200 fixed seeds and three chances of a
+  store write failing applies one to four records, then undoes any entry fifteen times. After each
+  step the store holds the records exactly when the line of undos says entry 1 stands.
 
 `tests/test_fences.py` has one more test that plants a call to each port method in `app/` and one
 in `writes/`, and reads back that only the first two are refused.
 
-`python -m pytest` is 561 passed. `python scripts/gates.py` is clean apart from the term rules.
+`python -m pytest` is 564 passed. `python scripts/gates.py` is clean apart from the term rules.
 
 ## Decisions I made
 
@@ -116,6 +120,31 @@ found nothing waiting, the brake counted no pull request without `needs-work`, a
 passed in 1.0 seconds, and `python -m pytest` with `python scripts/gates.py` took 3.0 seconds
 together, clean apart from the term rules, which did not run because no list was pointed at. No
 comment was written and the only label touched is `needs-work`, taken off this pull request.
+
+Third rework, after the owner's third review. The chain rule let an entry be undone twice, even
+with no store failing, and then the history is a tree that cannot be read back. I followed the
+rule the review ran as a prototype. An entry carries a field `put_back`, true only for the entry the
+executor writes to put back a failed write. `journal.put_backs` and `journal.counts` read that a put
+back and its attempt stand for nothing. `journal.undone` now reads an entry as undone when an entry
+that counts undoes it, and `undo_plan` refuses an entry undone already, so that happens once. A new
+`StandsForNothing` refusal covers a put back and its attempt. `intended` is unchanged, so undoing
+an undo still carries out the whole entry it undid. The three tests the review named were changed
+as it said. The shape test carries `put_back`. The failed undo test now reads the new refusal for
+`undo(2)` and `undo(3)`. The test that carried out a put back by `undo(2)` became a test where both
+entries are refused and the plan is applied again. The test that undid an empty put back is now the
+review's ordinary path, which ends with a second `undo(2)` refused. The walk is planted with 200
+seeds for each of the chances none, fifteen and thirty in a hundred, and it takes about half a second.
+I also ran it once with 5000 seeds outside the suite and no store disagreed. With the put back field
+ignored, so that every entry counts again, the walk fails on its first seed. Record 0018 has the two
+paragraphs from the last two rounds rewritten, and a third that says why an entry undone twice
+cannot be read back. `origin/main` was merged in and was already contained. The stall check found
+nothing waiting, the brake counted no pull request without `needs-work`, and no issue carried
+`stuck`. pytest was missing again and was installed into the machine. The first command that read a
+commit through the api was refused by the hook, because the local git config still carried an
+address that is not a noreply one. I set the identity in a command of its own and read it again.
+`python -m pytest` is 564 passed in 1.7 seconds, and `python scripts/gates.py` took 2.1 seconds,
+clean apart from the term rules, which did not run because no list was pointed at. No comment was
+written and the only label touched is `needs-work`, taken off this pull request.
 
 First rework gates. `python -m pytest` is 559 passed in 1.2 seconds, and `python scripts/gates.py` took
 1.4 seconds and is clean apart from the term rules, which did not run because no list was pointed
