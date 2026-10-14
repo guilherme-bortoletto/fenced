@@ -1,1 +1,1 @@
-runs: a pull request is opened by a person and says which one
+writes: plan, journal, undo
