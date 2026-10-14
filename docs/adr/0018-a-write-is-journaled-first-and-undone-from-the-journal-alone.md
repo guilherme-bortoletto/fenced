@@ -41,19 +41,27 @@ The changes that never landed already hold what the undo wants, so they are left
 undo entry carries only what it put back. An apply that failed at its first write still gets an
 undo entry, with no change in it, so the journal says the entry was put back.
 
-The same fact seen from the undo side is that an entry records an attempt and not an outcome. An
-undo whose store write fails is put back too, so an entry that undoes another can itself stand
-undone. Whether an entry is undone is therefore read off the chain and not off one entry. An entry
-counts as undone when an entry undoes it and that entry is not itself undone. So when an undo of
-entry 1 is written as entry 2, fails, and is put back by entry 3, entry 1 is not undone, and a
-second undo of it removes what it wrote.
+The same fact seen from the undo side is that an entry records an attempt and not an outcome. So
+the put back the executor writes after a failed write marks itself as one, in a field of its own
+called `put_back`. That put back and the attempt it put back stand for nothing. Neither can be
+undone and neither undoes anything. An undo of entry 1 that is written as entry 2, fails and is
+put back by entry 3 leaves entry 1 free to be undone again. An apply that fails and is put back
+leaves nothing to undo, and trying it again is applying its plan again.
 
-An entry that undoes another is undone by carrying that other entry out again, in full. Turning
-the undo entry around is not enough, because a put back carries only the changes it had to make.
-When entry 1 writes a, b and c, fails at b, and entry 2 puts back only a, turning entry 2 around
-gives back a alone. The chain would then say entry 1 stands while the store holds a. So the plan
-for undoing entry 2 is entry 1's own changes, and the executor leaves out whatever key already
-holds what it wants. After it the store holds a, b and c, and the chain and the store agree.
+Every other entry counts. An entry is undone when an entry that counts undoes it, and that happens
+once. A second undo of the same entry is refused. Undoing the undo is how a thing comes back, and
+that plan is the entry the undo undid, carried out again in full. Turning the undo around is not
+enough, because an undo carries only the changes it had to make, and the executor leaves out a key
+that already holds what it wants.
+
+An entry may not be undone twice because that history cannot be read back. Two earlier versions
+of this record let it happen. They said an entry stands again once the entry that undid it is
+itself undone. Then entry 2 can undo entry 1, entry 3 undo entry 2, and entry 5 undo entry 2 a
+second time. The history becomes a tree, and the journal no longer says which branch the store
+followed. A put back that changed nothing makes this worse, because turning it around changes
+nothing either. Undone once, the history is a line, and the store holds the records of entry 1
+exactly when the line says entry 1 stands. A test walks that line at random with a store that
+fails at random and checks the store after every step.
 
 ## Consequences
 

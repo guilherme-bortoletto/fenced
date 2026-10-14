@@ -1,7 +1,8 @@
 """What one apply leaves in the journal, and how the journal is read back.
 
-An entry has a number, the number of the entry it undoes or None, and every change the
-apply made with the record before it and the record after it. A record holds the
+An entry has a number, the number of the entry it undoes or None, whether it is the put
+back the executor wrote after a failed write, and every change the apply made with the
+record before it and the record after it. A record holds the
 extracted fields and a hash of the text, as `plan.record_of` builds it, so an entry holds
 no text a person wrote.
 
@@ -29,11 +30,21 @@ class AlreadyUndone(JournalError):
     """An entry another entry already puts back."""
 
 
-def entry_of(number: int, plan: Plan, changes: Sequence[Change]) -> dict[str, object]:
-    """The entry for an apply, made of text, lists and mappings and nothing else."""
+class StandsForNothing(JournalError):
+    """A put back, or the failed attempt it put back, which no undo can reach."""
+
+
+def entry_of(
+    number: int, plan: Plan, changes: Sequence[Change], *, put_back: bool = False
+) -> dict[str, object]:
+    """The entry for an apply, made of text, lists and mappings and nothing else.
+
+    `put_back` is True only for the entry the executor writes to put back a failed write.
+    """
     return {
         "entry": number,
         "undoes": plan.undoes,
+        "put_back": put_back,
         "changes": [
             {
                 "key": change.key,
@@ -59,18 +70,38 @@ def next_number(journal: Journal) -> int:
     return max(numbers, default=0) + 1
 
 
+def put_backs(entries: Sequence[Mapping[str, object]]) -> dict[int, int]:
+    """Each failed attempt that was put back, with the number of the put back.
+
+    An entry is written before the store, so it records an attempt and not an outcome. When
+    a store write fails, the executor puts the attempt back at once and marks that entry as
+    a put back. The attempt and its put back then stand for nothing together. Neither can be
+    undone and neither undoes anything, so the line of undos is read without them.
+    """
+    return {
+        entry["undoes"]: entry["entry"]
+        for entry in entries
+        if entry.get("put_back") and entry.get("undoes") is not None
+    }
+
+
+def counts(entries: Sequence[Mapping[str, object]], number: int) -> bool:
+    """Whether an entry stands for something, which is false for a put back and its attempt."""
+    by_number = {entry.get("entry"): entry for entry in entries}
+    return not by_number[number].get("put_back") and number not in put_backs(entries)
+
+
 def undone(entries: Sequence[Mapping[str, object]]) -> dict[int, int]:
     """Each entry that stands undone, with the number of the entry that undoes it.
 
-    An entry is written before the store, so it records an attempt and not an outcome,
-    and an undo can itself be put back. So an entry counts as undone when an entry undoes
-    it and that entry is not itself undone. An entry only ever undoes one written before
-    it, so reading from the last entry back settles each one before anything asks about it.
+    An entry is undone when an entry that counts undoes it, and that happens once, because
+    `undo_plan` refuses an entry that is already undone. So every entry is undone by one
+    entry at most and the history is a line. Undoing the undo is how a thing comes back.
     """
     found: dict[int, int] = {}
-    for entry in sorted(entries, key=lambda entry: entry["entry"], reverse=True):
+    for entry in sorted(entries, key=lambda entry: entry["entry"]):
         number, target = entry["entry"], entry.get("undoes")
-        if target is not None and number not in found and target not in found:
+        if target is not None and target not in found and counts(entries, number):
             found[target] = number
     return found
 
@@ -99,17 +130,31 @@ def undo_plan(journal: Journal, number: int) -> Plan:
 
     The changes run in the reverse order, each one turned around, so the last change the
     apply made is the first one put back. For an entry that undoes another, that is the
-    other entry carried out again in full, as `intended` reads it. Turning around only the
-    changes the undo carries would bring back only what it had to put back, and the chain
-    would then say the other entry stands while the store holds part of it. An entry that
-    stands undone is refused, because undoing it twice would put back a state nobody asked
-    for. Whether it stands undone is read off the chain of entries that undo it, as
-    `undone` reads it, and not off one entry. The store decides which of these changes are
-    still needed, because the executor leaves out a key that already holds what it wants.
+    other entry carried out again in full, as `intended` reads it, which is how a thing
+    that was undone comes back.
+
+    Two kinds of entry are refused. A put back and the attempt it put back stand for
+    nothing, so trying the attempt again is applying its plan again. And an entry that is
+    already undone is refused, because an entry undone twice turns the history into a tree
+    and no reading of a tree tells which branch the store followed. The store decides which
+    of these changes are still needed, because the executor leaves out a key that already
+    holds what it wants.
     """
     entries = journal.entries()
-    if not any(entry.get("entry") == number for entry in entries):
+    by_number = {entry.get("entry"): entry for entry in entries}
+    if number not in by_number:
         raise UnknownEntry(f"the journal carries no entry {number}")
+    if by_number[number].get("put_back"):
+        target = by_number[number].get("undoes")
+        raise StandsForNothing(
+            f"entry {number} puts back entry {target} after a failed write and stands for nothing"
+        )
+    back = put_backs(entries).get(number)
+    if back is not None:
+        raise StandsForNothing(
+            f"entry {number} failed and entry {back} put it back, so it stands for nothing, "
+            "and trying it again is applying it again"
+        )
     undone_by = undone(entries).get(number)
     if undone_by is not None:
         raise AlreadyUndone(f"entry {number} is already undone by entry {undone_by}")

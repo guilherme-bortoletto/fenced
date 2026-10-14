@@ -10,6 +10,8 @@ store write that lands is always one the journal already carries.
 When a store write fails halfway, the executor undoes the entry it just wrote, by the
 same route `undo` takes. That is a plan read from the journal alone, journaled before it
 writes, and the changes that never landed are already what it wants and are left alone.
+Its entry is marked as a put back, so the journal reads the attempt and the put back as
+standing for nothing.
 When the putting back fails as well, both entries are in the journal, the store holds
 part of each, and the error says so. That is the one case handed to a person, because a
 second automatic attempt against a store that has failed twice is a guess.
@@ -87,26 +89,26 @@ def apply(plan: Plan, crm: Crm, journal: Journal, *, really: bool = False) -> Ou
     """
     if not really:
         return Outcome(simulated=True, entry=None, diff=tuple(plan.diff()))
-    return _apply(plan, crm, journal, put_back=True)
+    return _apply(plan, crm, journal, putting_back=False)
 
 
-def _apply(plan: Plan, crm: Crm, journal: Journal, *, put_back: bool) -> Outcome:
-    """A real apply, and the putting back of one that failed when `put_back` is set."""
+def _apply(plan: Plan, crm: Crm, journal: Journal, *, putting_back: bool) -> Outcome:
+    """A real apply, and the putting back of one that failed when `putting_back` is set."""
     needed = _to_make(crm, plan)
     if not needed and plan.undoes is None:
         return Outcome(simulated=False, entry=None, diff=())
     made = Plan(tuple(needed), undoes=plan.undoes)
     number = next_number(journal)
-    journal.append(entry_of(number, made, needed))
+    journal.append(entry_of(number, made, needed, put_back=putting_back))
     for position, change in enumerate(needed, start=1):
         try:
             _write(crm, change)
         except Exception as failed:
             stopped = f"entry {number} stopped at change {position} of {len(needed)}"
-            if not put_back:
+            if putting_back:
                 raise ApplyFailed(stopped) from failed
             try:
-                back = _apply(undo_plan(journal, number), crm, journal, put_back=False)
+                back = _apply(undo_plan(journal, number), crm, journal, putting_back=True)
             except Exception as also:
                 raise ApplyFailed(
                     f"{stopped}, and putting it back failed too, so the store holds part of "
