@@ -39,7 +39,7 @@ so it is not a second place a message lives.
 
 ## Tests
 
-`tests/test_writes.py` has 24 tests over a store and a journal kept in memory. The fake journal
+`tests/test_writes.py` has 25 tests over a store and a journal kept in memory. The fake journal
 keeps each entry as a line of JSON and reads it back, so a test reads what a file would hold.
 
 - Simulate. Planning writes nothing, simulating is the default, and a simulated apply touches
@@ -52,12 +52,14 @@ keeps each entry as a line of JSON and reads it back, so a test reads what a fil
   in the reverse order, an entry is undone once, and a record changed after the entry is refused.
 - Fails halfway. A write that fails at the second of three changes leaves the store as it was and
   the journal with the entry and the entry that put it back. A failure at the first write still
-  journals the putting back. A failure that hits the putting back too names both entries.
+  journals the putting back. A failure that hits the putting back too names both entries. An
+  undo that fails and is put back leaves its entry to be undone again, and the second undo removes
+  the record.
 
 `tests/test_fences.py` has one more test that plants a call to each port method in `app/` and one
 in `writes/`, and reads back that only the first two are refused.
 
-`python -m pytest` is 558 passed. `python scripts/gates.py` is clean apart from the term rules.
+`python -m pytest` is 559 passed. `python scripts/gates.py` is clean apart from the term rules.
 
 ## Decisions I made
 
@@ -87,6 +89,20 @@ No adapter is written here. A JSON file for the store and for the journal is iss
 
 The text rule of AGENTS.md, in one line: "No dash used as punctuation and no semicolon, in
 Markdown or in a docstring. Short sentences. Describe what is there instead of selling it."
+
+Rework after the owner's review. The review found one attack that did not die. `undo_plan` read an
+entry as undone when any entry named it in `undoes`, but an entry records an attempt, and an undo
+can itself be put back. `journal.undone` now reads the chain from the last entry back, so an entry
+counts as undone when an entry undoes it and that entry is not itself undone. The review's sequence
+is planted as a test that ends with the record gone after the second `undo(1)`, and that test fails
+on the old rule with the false refusal the review quoted. Record 0018 carries the rule next to the
+paragraph about a write that fails halfway. `origin/main` was merged in and was already contained.
+The published body of this pull request still reads as it was first written, because it is never
+edited. This file carries the rework instead.
+
+Rework gates. `python -m pytest` is 559 passed in 1.2 seconds, and `python scripts/gates.py` took
+1.4 seconds and is clean apart from the term rules, which did not run because no list was pointed
+at. pytest was again missing from the interpreter and was installed into the machine.
 
 What I did. The stall check came first and found nothing waiting. The most recent merge is pull
 request 42 from earlier today, and no pull request was open. So the brake counted none, no issue
