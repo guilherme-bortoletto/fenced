@@ -41,6 +41,13 @@ The changes that never landed already hold what the undo wants, so they are left
 undo entry carries only what it put back. An apply that failed at its first write still gets an
 undo entry, with no change in it, so the journal says the entry was put back.
 
+The same fact seen from the undo side is that an entry records an attempt and not an outcome. An
+undo whose store write fails is put back too, so an entry that undoes another can itself stand
+undone. Whether an entry is undone is therefore read off the chain and not off one entry. An entry
+counts as undone when an entry undoes it and that entry is not itself undone. So when an undo of
+entry 1 is written as entry 2, fails, and is put back by entry 3, entry 1 is not undone, and a
+second undo of it removes what it wrote.
+
 ## Consequences
 
 Every record the store holds through this layer is one the journal carried first. A process that

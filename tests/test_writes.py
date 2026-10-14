@@ -324,6 +324,25 @@ def test_an_apply_that_fails_at_its_first_write_still_journals_that_it_was_put_b
         undo(1, crm, journal)
 
 
+def test_an_undo_that_was_put_back_leaves_its_entry_to_be_undone_again():
+    crm, journal = Crm(fail_on={2}), Journal()
+    apply(plan(crm, [lead()]), crm, journal, really=True)
+    with pytest.raises(ApplyFailed) as failed:
+        undo(1, crm, journal, really=True)
+    assert str(failed.value) == "entry 2 stopped at change 1 of 1, and entry 3 put it back"
+    assert set(crm.records) == {"ana@example.com"}
+    assert [(entry["undoes"], entry["changes"]) for entry in journal.entries()][2] == (2, [])
+    with pytest.raises(AlreadyUndone) as refused:
+        undo(2, crm, journal, really=True)
+    assert str(refused.value) == "entry 2 is already undone by entry 3"
+    outcome = undo(1, crm, journal, really=True)
+    assert outcome.entry == 4
+    assert crm.records == {}
+    with pytest.raises(AlreadyUndone) as refused:
+        undo(1, crm, journal, really=True)
+    assert str(refused.value) == "entry 1 is already undone by entry 4"
+
+
 def test_an_apply_whose_putting_back_fails_too_hands_both_entries_to_a_person():
     crm, journal = Crm(fail_on={3, 4}), Journal()
     with pytest.raises(ApplyFailed) as failed:
