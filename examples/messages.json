@@ -1,0 +1,32 @@
+[
+  {
+    "id": "m1",
+    "received_at": "2026-10-05T08:10:00+00:00",
+    "text": "Hello. We run a small bakery and every Friday we throw away bread nobody ordered.\n\nRita Calloway\nrita@example.com"
+  },
+  {
+    "id": "m2",
+    "received_at": "2026-10-05T09:40:00+00:00",
+    "text": "Our stock count keeps drifting from what the shelves hold and it is a real problem for us.\n\nOtto Brennan\notto.brennan@example.org"
+  },
+  {
+    "id": "m3",
+    "received_at": "2026-10-05T11:05:00+00:00",
+    "text": "We are looking at a few options for tracking stock and want to compare what is out there.\n\nLena Marsh\nlena@example.net"
+  },
+  {
+    "id": "m4",
+    "received_at": "2026-10-05T13:30:00+00:00",
+    "text": "How much is the shelf scanner you showed at the fair?\n\nIvo Pardo\nivo.pardo@example.com"
+  },
+  {
+    "id": "m5",
+    "received_at": "2026-10-05T15:00:00+00:00",
+    "text": "We are ready to buy the starter kit this week. Please send the invoice.\n\nNoor Haddad\nnoor@example.org"
+  },
+  {
+    "id": "m6",
+    "received_at": "2026-10-05T16:20:00+00:00",
+    "text": "Hi, please call me back about the counters.\n\nTess"
+  }
+]
