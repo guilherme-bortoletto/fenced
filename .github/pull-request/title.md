@@ -1,1 +1,1 @@
-decisions: the model at the edge, writes that simulate, no secret
+runs: what the publisher does when the account is not the person
