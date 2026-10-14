@@ -30,3 +30,4 @@ below fails the build, and so does a row below that points at a file that is not
 | [0019 The command line simulates with the fake extractor unless told otherwise](0019-the-command-line-simulates-with-the-fake-extractor-unless-told-otherwise.md) | accepted |
 | [0020 The model returns fields and nothing else](0020-the-model-returns-fields-and-nothing-else.md) | accepted |
 | [0021 No secret enters the tree, and what the fence on it does not see](0021-no-secret-enters-the-tree.md) | accepted |
+| [0022 A pull request that carries another account is opened and then turns the job red](0022-a-pull-request-that-carries-another-account-turns-the-job-red.md) | accepted |
