@@ -39,7 +39,7 @@ so it is not a second place a message lives.
 
 ## Tests
 
-`tests/test_writes.py` has 25 tests over a store and a journal kept in memory. The fake journal
+`tests/test_writes.py` has 27 tests over a store and a journal kept in memory. The fake journal
 keeps each entry as a line of JSON and reads it back, so a test reads what a file would hold.
 
 - Simulate. Planning writes nothing, simulating is the default, and a simulated apply touches
@@ -54,12 +54,13 @@ keeps each entry as a line of JSON and reads it back, so a test reads what a fil
   the journal with the entry and the entry that put it back. A failure at the first write still
   journals the putting back. A failure that hits the putting back too names both entries. An
   undo that fails and is put back leaves its entry to be undone again, and the second undo removes
-  the record.
+  the record. Undoing a put back carries out the whole entry it put back, so after a write of a, b
+  and c fails at b and is put back, undoing the put back leaves the store holding a, b and c.
 
 `tests/test_fences.py` has one more test that plants a call to each port method in `app/` and one
 in `writes/`, and reads back that only the first two are refused.
 
-`python -m pytest` is 559 passed. `python scripts/gates.py` is clean apart from the term rules.
+`python -m pytest` is 561 passed. `python scripts/gates.py` is clean apart from the term rules.
 
 ## Decisions I made
 
@@ -100,7 +101,23 @@ paragraph about a write that fails halfway. `origin/main` was merged in and was 
 The published body of this pull request still reads as it was first written, because it is never
 edited. This file carries the rework instead.
 
-Rework gates. `python -m pytest` is 559 passed in 1.2 seconds, and `python scripts/gates.py` took
+Second rework, after the owner's second review. The chain rule only holds when undoing an undo
+brings back the whole entry it undid, and it did not, because a put back carries only the changes
+it had to make. `journal.intended` now reads what an entry set out to do. For an entry that undoes
+nothing that is the changes it carries. For an entry that undoes another it is that other entry's
+intent turned around. `undo_plan` turns that intent around, so undoing a put back is the entry it
+put back carried out again in full, and the executor still leaves out a key that already holds what
+it wants. The review's sequence is planted as a test that ends with the store holding a, b and c
+after `undo(2)`. The test from the last round stays. A second new test undoes the empty put back
+from the last review directly and reads that the record goes. Record 0018 says why turning a put
+back around is not enough. `origin/main` was merged in and was already contained. The stall check
+found nothing waiting, the brake counted no pull request without `needs-work`, and no issue carried
+`stuck`. pytest was missing again and was installed into the machine. `python -m pytest` is 561
+passed in 1.0 seconds, and `python -m pytest` with `python scripts/gates.py` took 3.0 seconds
+together, clean apart from the term rules, which did not run because no list was pointed at. No
+comment was written and the only label touched is `needs-work`, taken off this pull request.
+
+First rework gates. `python -m pytest` is 559 passed in 1.2 seconds, and `python scripts/gates.py` took
 1.4 seconds and is clean apart from the term rules, which did not run because no list was pointed
 at. pytest was again missing from the interpreter and was installed into the machine.
 
