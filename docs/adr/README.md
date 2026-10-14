@@ -29,3 +29,4 @@ below fails the build, and so does a row below that points at a file that is not
 | [0018 A write is journaled first and undone from the journal alone](0018-a-write-is-journaled-first-and-undone-from-the-journal-alone.md) | accepted |
 | [0019 The command line simulates with the fake extractor unless told otherwise](0019-the-command-line-simulates-with-the-fake-extractor-unless-told-otherwise.md) | accepted |
 | [0020 The model returns fields and nothing else](0020-the-model-returns-fields-and-nothing-else.md) | accepted |
+| [0021 No secret enters the tree, and what the fence on it does not see](0021-no-secret-enters-the-tree.md) | accepted |

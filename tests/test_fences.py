@@ -1087,6 +1087,37 @@ def test_the_secret_fence_rejects_a_versioned_environment_file(tmp_path):
     assert secrets_in_the_tree(tmp_path) == [".env is under version control"]
 
 
+@pytest.mark.admits
+def test_the_secret_fence_still_admits_an_example_environment_file(tmp_path):
+    tmp_path.joinpath(".env.example").write_text("FENCED_LLM_API_KEY=\n", encoding="utf-8")
+    assert secrets_in_the_tree(tmp_path) == []
+
+
+@pytest.mark.admits
+def test_the_secret_fence_still_admits_a_pinned_action_in_a_workflow(tmp_path):
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    pinned = "a1b2c3d4e5" * 4
+    workflows.joinpath("ci.yml").write_text(
+        f"steps:\n  - uses: actions/checkout@{pinned}\n", encoding="utf-8"
+    )
+    assert secrets_in_the_tree(tmp_path) == []
+
+
+@pytest.mark.admits
+def test_the_secret_fence_misses_a_credential_assembled_at_run_time(tmp_path):
+    """What reading text and not values costs, planted so it is not a surprise.
+
+    The fence reads the shape of what is written. A key built from pieces has no shape
+    until the code runs, so the fence lets it through. This file relies on that to plant
+    the shapes above. The record is docs/adr/0021-no-secret-enters-the-tree.md
+    """
+    tmp_path.joinpath("config.py").write_text(
+        'KEY = "sk-" + "A1b2C3d4" * 4\n', encoding="utf-8"
+    )
+    assert secrets_in_the_tree(tmp_path) == []
+
+
 @pytest.mark.plants
 def test_the_provider_fence_rejects_a_name_outside_the_adapter(tmp_path):
     planted = tmp_path / "src" / "fenced" / "domain"
