@@ -34,7 +34,12 @@ is pushed many times in one run and the workflow runs on each push. The push tha
 carries this run's own body opens the pull request. Every push after it publishes
 nothing, which is what writing a body once means when the trigger repeats.
 
-The token arrives in GITHUB_TOKEN or in GH_TOKEN and is never written down here.
+The token arrives in GITHUB_TOKEN or in GH_TOKEN and is never written down here. Which
+account is behind it is not written down either, so this asks GitHub and prints the login
+it gets back. A squash merge takes the author of the pull request, so the account that
+opened one is the account a commit on `main` ends up carrying. A workflow token has no
+person behind it and GitHub names no account for it, and that answer is printed as well.
+A run that fell back to the workflow token says so on the line it prints.
 
 After the call the script reads the pull request back and compares it to what it sent.
 That read is a check and not a repair. When the two disagree it says so and stops, and
@@ -157,14 +162,25 @@ def issue_of_the_body(body: str) -> str:
     return closing.group(1)
 
 
-def nothing_published(reason: str, number: int | None = None, url: str = "") -> dict:
+def nothing_published(
+    reason: str, number: int | None = None, url: str = "", account: str = ""
+) -> dict:
     """An answer that published nothing and carries the reason, for a run that is not wrong.
 
     Two pushes reach here on an ordinary run. The one before this run wrote its own body,
     which still carries the body of the run before it, and every push after the one that
     opened the pull request. Neither is a mistake, so neither is an error.
+
+    The account is carried when one was read. The push that finds a body written for another
+    issue reads none, because it asks GitHub nothing at all, and the field is empty there.
     """
-    return {"number": number, "url": url, "published": False, "reason": reason}
+    return {
+        "number": number,
+        "url": url,
+        "published": False,
+        "reason": reason,
+        "account": account,
+    }
 
 
 def as_sent(text: str) -> str:
@@ -183,6 +199,27 @@ def already_there(owner: str, repo: str, head: str, key: str, transport) -> dict
     if isinstance(listed, list) and listed and isinstance(listed[0], dict):
         return listed[0]
     return None
+
+
+def account(key: str, transport) -> str:
+    """The login this call authenticated as, asked of GitHub instead of read off the token.
+
+    A squash merge takes the author of the pull request, so which account opens one is what
+    the history of `main` ends up carrying. A token does not say whose it is, and a workflow
+    token is nobody's, so the answer comes from GitHub or it says that it could not be had.
+
+    This never refuses. The publishing call falls back to the workflow token where the secret
+    holding the person's token is absent, and nothing further, and a read that only names an
+    account must not be the thing that stops a publish.
+    """
+    try:
+        who = transport("GET", f"{API}/user", None, key)
+    except Refused as refused:
+        return f"an account GitHub would not name, {refused}"
+    login = who.get("login") if isinstance(who, dict) else None
+    if isinstance(login, str) and login.strip():
+        return login.strip()
+    return "an account that came back without a login"
 
 
 def publish(
@@ -208,6 +245,9 @@ def publish(
     run's text at all, and no text rule can tell. Such a body publishes nothing and says
     why, the same answer a branch that already has a pull request gets. The gate then
     runs on what is left.
+
+    The account is read once the token is in hand, so every answer that reached GitHub
+    carries the login the call authenticated as, whether it published or not.
     """
     named = issue_of_the_branch(head)
     closing = issue_of_the_body(body)
@@ -219,6 +259,7 @@ def publish(
     gate("the title", title, terms)
     gate("the body", body, terms)
     key = token()
+    who = account(key, transport)
     standing = already_there(owner, repo, head, key, transport)
     if standing is not None:
         number = standing.get("number")
@@ -226,6 +267,7 @@ def publish(
             f"this branch already has pull request {number}",
             number=number,
             url=standing.get("html_url", ""),
+            account=who,
         )
     made = transport(
         "POST",
@@ -251,6 +293,7 @@ def publish(
         "url": made.get("html_url", ""),
         "published": True,
         "reason": "",
+        "account": who,
     }
 
 
@@ -280,10 +323,12 @@ def main(argv: list[str]) -> int:
     except Exception as broken:
         sys.stderr.write(f"publish: the call itself broke, so nothing is assumed, {broken}\n")
         return 1
+    who = opened.get("account", "")
+    named = f", authenticated as {who}" if who else ""
     if not opened["published"]:
-        print(f"publish: nothing was published, {opened['reason']}")
+        print(f"publish: nothing was published, {opened['reason']}{named}")
         return 0
-    print(f"publish: pull request {opened['number']} {opened['url']}")
+    print(f"publish: pull request {opened['number']} {opened['url']}{named}")
     return 0
 
 

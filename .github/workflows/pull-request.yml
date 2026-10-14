@@ -54,12 +54,37 @@ jobs:
           python rules-from-main/scripts/gates.py --text \
             .github/pull-request/title.md \
             .github/pull-request/body.md
+      # Which of the two tokens the publish reads, said out loud and without the token itself.
+      # The publisher says which account GitHub named for the token it was given. It cannot say
+      # which secret that was, because a token that is absent and a token that is present and
+      # cannot do the work both end in an account GitHub will not name, and a person reading a
+      # red job needs those two apart. The expression is a boolean and never the secret.
+      - name: which token the publish reads
+        if: steps.files.outputs.ready == 'yes'
+        env:
+          A_PERSON: ${{ secrets.PR_TOKEN != '' }}
+        run: |
+          if [ "$A_PERSON" = "true" ]; then
+            echo "the secret PR_TOKEN is set, so the publish authenticates as whoever owns it"
+          else
+            echo "the secret PR_TOKEN is not set, so the publish falls back to the workflow token"
+          fi
       - name: publish
         if: steps.files.outputs.ready == 'yes'
         # The branch name reaches the shell through the environment and never through
         # the text of the command, because a branch name is not this workflow to write.
+        #
+        # The token belongs to a person. A squash merge takes the author of the pull request,
+        # so the account that opens one is the account a commit on main ends up carrying, and
+        # the workflow token has no person behind it. What the expression covers is a secret
+        # that is absent, which reads as the empty string, and nothing further. A token that
+        # is present and refused is handed over and the publish stops there.
+        # What the fallback must not do is hide that it happened, so the publisher asks
+        # GitHub which account it authenticated as and prints the answer on every path.
+        # What the token is scoped to and why a pushed branch cannot reach it are in
+        # docs/adr/0017-a-pull-request-is-published-as-a-person.md
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.PR_TOKEN || secrets.GITHUB_TOKEN }}
           OWNER: ${{ github.repository_owner }}
           REPO: ${{ github.event.repository.name }}
           BRANCH: ${{ github.ref_name }}
