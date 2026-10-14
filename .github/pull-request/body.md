@@ -1,61 +1,58 @@
-Closes #45
+Closes #8
 
 ## What
 
-The publisher opens a pull request only from the push that changed `.github/pull-request/body.md`.
+The README tour is finished. It now runs to twenty seven steps, and the last seven cover the model record, the secrets record, `SECURITY.md`, `AGENTS.md`, the pull request workflow, the publisher and record 0008. A stray blank line inside the list is gone. The line that said the rest arrives later now says a new file gets its line with the pull request that adds it.
 
-`scripts/publish.py` reads the two commits a push moved the branch between, from `PUSH_BEFORE` and `PUSH_AFTER`. It asks GitHub for `compare/{before}...{after}` and looks for the body file among the files listed. When the file is not there it publishes nothing, prints that this push did not change the body, and exits zero. A push that creates a branch names forty zeros as the commit before it, and that push is compared against the base branch. A commit of any other shape, or a missing one, is refused and the job turns red.
+A new section, How the work happens, says in five lines how the backlog, the routine, the gates and the agent review fit together. It says plainly that an agent writes the code and another agent reviews and merges it.
 
-`.github/workflows/pull-request.yml` hands `github.event.before` and `github.event.after` to the publish step in those two variables.
+The opening paragraph no longer says skeleton stage. It says what the command line does, and that scoring, matching and the reply are domain code the command line does not call yet.
 
-Record 0023 says why, an index row points at it, and `AGENTS.md` has one sentence on it.
+The run section says the install is the one step that reaches the network, and shows `PYTHONPATH=src python -m fenced run` for a clone with nothing installed.
+
+`SECURITY.md` asks a reporter to open an issue saying a problem exists without describing it, so the owner can take it to a private security advisory. It says what record 0021 and its tests prove about secrets, and that the examples are invented.
+
+`tests/test_readme.py` walks the tour through the tree.
 
 ## Why
 
-Record 0011 stops a body that closes another issue. A run that continues a branch finds a body that closes the right issue and that the run has not touched yet. Its first push published that body. That is what nearly happened on `claude/issue-41` on 29/09. The text cannot tell the two pushes apart. The push can.
-
-The ordinary path stays as it was. The push that carries the body of a run is the push that changed the file, so it opens the pull request.
+The issue asks for a README a reader finishes in fifteen minutes, with a tour whose files exist in reading order, commands that work on a fresh clone, a process section and a security policy.
 
 ## Tests
 
-`python -m pytest` passes 663 tests. `python scripts/gates.py` is clean apart from the term rules, which had no list to read on this machine.
+`python -m pytest` passes 670 tests. `python scripts/gates.py` is clean apart from the term rules, which had no list to read on this machine.
 
-New tests in `tests/test_publish.py` plant these cases.
+New tests in `tests/test_readme.py` plant these cases.
 
-- A push that left the body alone publishes nothing and says why. That is the branch of issue 41.
-- A push that changed the body publishes it.
-- A push with no files listed, and a file whose path only ends like the body file, publish nothing.
-- The comparison runs from the commit before the push to the one after it.
-- A push that creates the branch is compared against `main`.
-- A branch that already has a pull request, and a body written for another issue, ask for no comparison.
-- Five commits of the wrong shape are refused before anything is sent.
-- A comparison that comes back without a list of files is refused.
-- End to end through `main`, the first push of a continuing run exits zero, and a run with no commits in the environment exits one.
-- The workflow hands over both commits from the push event and the body file the publisher looks for, and three planted workflows that drop one of them are refused.
+- The tour of this repository can be walked. Every step names a path that exists, the steps are numbered from one with no gap, and no path is visited twice.
+- A tour that names a missing file, skips a number, visits a file twice or has no steps is refused.
+- A numbered line after the tour section is not read as a step.
+
+Every command in the run section was run in a fresh clone of the branch. `fenced run`, `fenced run --write`, `fenced undo 1` and `fenced undo 1 --write` each did what the README says. `fenced run --extractor model` with no key said so and exited with status 2. `PYTHONPATH=src python -m fenced run` worked with nothing installed.
 
 ## Decisions I made
 
-- The commits reach the publisher through the environment and not as arguments. The workflow file comes from the branch and the publisher from `main`. The copy of `main` that runs on this branch does not know `--before`, and an unknown argument would have turned the job red and opened no pull request for this branch. An unknown variable is read past. `--before` and `--after` still exist and default to the two variables.
-- The check is a comparison of the push and not a comparison of the body text with the text at the commit before. The comparison needs no new error handling for a file that is absent, and it reads what the push did.
-- The comparison runs after the check for a standing pull request, so a branch that already has one gets the answer it got before and makes no extra call.
-- A missing or malformed commit is refused rather than read as a push that changed nothing. A broken workflow should be a red job and not a quiet one.
-- The body file path is a constant in the publisher, and a test reads the workflow to keep `--body-file` equal to it.
-- A push that rewrites the body byte for byte publishes nothing. A failed publish is recovered by re-running the job on the push that wrote the body. Both are written down in record 0023.
+- The Answers say a test already reads the tour back against the files. The test that existed reads back the counts in step 1 and the table of fences, and nothing checked that a tour path exists. I added that check.
+- The tour check lives in a file of its own and not in `tests/test_fences.py`. That file counts every function asserted to return an empty list as a check, and the README counts the checks, so a tour check there would change the fence counts for something that is not a fence.
+- The test checks that the tour can be walked and not that its order is right. Reading order is a choice a person makes.
+- The tour grew by seven steps and not by every record. Records 0004 to 0013, 0017, 0022 and 0023 are about how the fences, the gates and the publisher check themselves. The ADR index lists them, and record 0008 stands in the tour as the way into the publishing part.
+- `SECURITY.md` promises no channel, no response time and no claim about tests outside the examples. Only the example messages are said to be invented, because that is the part I could read in full.
+- The process section counts its five lines as a numbered list, so the count can be checked by eye.
 
 ## Run notes
 
 > No dash used as punctuation and no semicolon, in Markdown or in a docstring. Short sentences. Describe what is there instead of selling it.
 
-Stall check found nothing. The last merge was pull request 49 today, and no `claude/` pull request was open. The brake counted zero and no issue carried `stuck`. No pull request carried `needs-work`. Issue 45 was the only open `night` issue and had no branch, so `claude/issue-45` was cut from `main`.
+Stall check found nothing. The last merge was pull request 50 today, and no `claude/` pull request was open. The brake counted zero and no issue carried `stuck`. No pull request carried `needs-work`. Issue 8 was the only open `night` issue and had no branch, so `claude/issue-8` was cut from `main`.
 
-pytest was not installed for the interpreter the gate uses, so the first gate run reported that the tests did not run. I installed pytest and ran it again.
+The default interpreter here is Python 3.11 and the package needs 3.12, so I made a 3.13 virtual environment for the fresh clone checks. The interpreter the gate hook uses had no pytest, so I installed pytest for it. The suite passes under both.
 
 The first commit was blocked by the commit hook, because the global git identity on this machine is not a GitHub noreply address and the hook reads the identity before the command that set it. I set the identity in the clone in a step of its own and committed again. No hook was skipped.
 
-The first two pushes left the pull request job green, because the branch still carried the body of issue 44.
+The first two pushes left the pull request job green, because the branch still carried the body of issue 45.
 
-I did not prove the comparison against GitHub itself. It was proved against a fake transport. This push is the first one that reaches it, through the copy of the publisher on `main`, which does not have it yet. The first real comparison happens on the first push after this merges.
+I did not wire scoring, matching or the reply into the command line. The README says they are not wired yet.
 
 I did not run the term rules, because no list was on this machine.
 
-The gates took between 2.4 and 2.9 seconds a run, over seven runs.
+The gates took between 2.1 and 2.8 seconds a run, over five runs.
