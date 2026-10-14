@@ -59,6 +59,9 @@ class Fake:
 
     The account read answers with a login. A test that wants another answer passes `who`,
     and one that wants the answer a workflow token gets raises from a fake of its own.
+
+    The pull request it reads back carries no author unless a test passes `author`, which
+    is the login GitHub stored as the one who opened it.
     """
 
     def __init__(
@@ -67,12 +70,14 @@ class Fake:
         number: int = 7,
         standing: list | None = None,
         who: dict | None = None,
+        author: str | None = None,
     ):
         self.calls = []
         self.stored = stored
         self.number = number
         self.standing = standing or []
         self.who = {"login": LOGIN} if who is None else who
+        self.author = author
 
     def __call__(self, method, url, payload, key):
         self.calls.append({"method": method, "url": url, "payload": payload, "key": key})
@@ -84,7 +89,10 @@ class Fake:
             self.sent = (payload or {}).get("body")
             return {"number": self.number, "html_url": f"https://github.com/o/r/pull/{self.number}"}
         kept = self.stored if self.stored is not None else self.sent
-        return {"number": self.number, "body": kept}
+        pull = {"number": self.number, "body": kept}
+        if self.author is not None:
+            pull["user"] = {"login": self.author}
+        return pull
 
 
 def methods(fake) -> list[str]:
@@ -107,6 +115,7 @@ def a_token(monkeypatch):
     monkeypatch.setenv("GITHUB_TOKEN", "a-token-that-goes-nowhere")
     monkeypatch.delenv("GH_TOKEN", raising=False)
     monkeypatch.delenv("FENCED_TERMS_FILE", raising=False)
+    monkeypatch.delenv("PR_ACCOUNT", raising=False)
 
 
 def opened(transport, title=TITLE, body=BODY, terms=(), head="claude/issue-1"):
@@ -126,6 +135,7 @@ def test_the_body_that_reaches_the_wire_is_the_body_that_was_written():
         "published": True,
         "reason": "",
         "account": LOGIN,
+        "author": "",
     }
 
 
@@ -139,6 +149,7 @@ def test_a_branch_that_already_has_a_pull_request_gets_nothing():
         "published": False,
         "reason": "this branch already has pull request 4",
         "account": LOGIN,
+        "author": "",
     }
     assert methods(fake) == []
 
@@ -556,3 +567,135 @@ def test_the_first_push_of_a_run_names_no_account_because_it_read_none(tmp_path,
     code = a_run(tmp_path, "Closes #28\n\n## What\n\nThe run before this one.\n")
     assert code == 0
     assert "authenticated as" not in capsys.readouterr().out
+
+
+# The account a pull request carries, checked and not only narrated. The author GitHub
+# stored is compared with the account PR_ACCOUNT names. A pull request that carries another
+# one stays open and the job turns red. An empty PR_ACCOUNT compares nothing and says so.
+# That decision is docs/adr/0022-a-pull-request-that-carries-another-account-turns-the-job-red.md
+
+BOT = "github-actions[bot]"
+SOMEBODY = "somebody-else"
+
+
+def a_run_against(tmp_path, monkeypatch, fake, head="claude/issue-1"):
+    """One call to main over the planted body, with the fake in place of the wire."""
+    original = publish.publish
+    monkeypatch.setattr(
+        publish,
+        "publish",
+        lambda *called: original(*called, transport=fake),
+    )
+    return a_run(tmp_path, BODY, head=head)
+
+
+def test_the_author_is_read_off_the_pull_request_that_was_stored():
+    made = opened(Fake(author=LOGIN))
+    assert made["author"] == LOGIN
+
+
+def test_the_author_is_read_off_the_pull_request_the_branch_already_has():
+    standing = [{"number": 4, "html_url": "", "user": {"login": BOT}}]
+    made = opened(Fake(standing=standing))
+    assert made["author"] == BOT
+
+
+def test_a_pull_request_with_no_author_reads_as_none():
+    assert opened(Fake())["author"] == ""
+    assert publish.author({"user": "not a user"}) == ""
+    assert publish.author([]) == ""
+
+
+def test_a_pull_request_opened_as_the_named_account_leaves_the_job_green(
+    tmp_path, monkeypatch, capsys
+):
+    monkeypatch.setenv("PR_ACCOUNT", LOGIN)
+    assert a_run_against(tmp_path, monkeypatch, Fake(author=LOGIN)) == 0
+    assert f"carries {LOGIN}, the account PR_ACCOUNT names" in capsys.readouterr().out
+
+
+def test_logins_are_compared_without_case(tmp_path, monkeypatch):
+    monkeypatch.setenv("PR_ACCOUNT", LOGIN.upper())
+    assert a_run_against(tmp_path, monkeypatch, Fake(author=LOGIN)) == 0
+
+
+def test_a_pull_request_opened_as_the_bot_stays_open_and_turns_the_job_red(
+    tmp_path, monkeypatch, capsys
+):
+    """The secret is absent, so the publish fell back to the workflow token."""
+    monkeypatch.setenv("PR_ACCOUNT", LOGIN)
+    fake = Fake(author=BOT)
+    assert a_run_against(tmp_path, monkeypatch, fake) == 1
+    printed = capsys.readouterr()
+    assert "pull request 7 https://github.com/o/r/pull/7" in printed.out
+    assert f"carries {BOT} and not {LOGIN}" in printed.err
+    assert [call["method"] for call in fake.calls if call["method"] != "GET"] == ["POST"]
+
+
+def test_a_pull_request_opened_as_somebody_else_turns_the_job_red(
+    tmp_path, monkeypatch, capsys
+):
+    monkeypatch.setenv("PR_ACCOUNT", LOGIN)
+    assert a_run_against(tmp_path, monkeypatch, Fake(author=SOMEBODY)) == 1
+    assert f"carries {SOMEBODY} and not {LOGIN}" in capsys.readouterr().err
+
+
+def test_a_pull_request_that_came_back_with_no_author_turns_the_job_red(
+    tmp_path, monkeypatch, capsys
+):
+    monkeypatch.setenv("PR_ACCOUNT", LOGIN)
+    assert a_run_against(tmp_path, monkeypatch, Fake()) == 1
+    assert "carries no author GitHub would name" in capsys.readouterr().err
+
+
+def test_a_later_push_keeps_the_job_red_while_the_account_is_wrong(
+    tmp_path, monkeypatch, capsys
+):
+    """A green job on a later push would hide the red one next to the same pull request."""
+    monkeypatch.setenv("PR_ACCOUNT", LOGIN)
+    standing = [{"number": 4, "html_url": "", "user": {"login": BOT}}]
+    fake = Fake(standing=standing)
+    assert a_run_against(tmp_path, monkeypatch, fake) == 1
+    assert f"pull request 4 carries {BOT}" in capsys.readouterr().err
+    assert [call["method"] for call in fake.calls if call["method"] != "GET"] == []
+
+
+def test_an_empty_account_compares_nothing_and_says_so(tmp_path, monkeypatch, capsys):
+    """A clone that never set the variable still publishes, with the bot or anybody."""
+    monkeypatch.setenv("PR_ACCOUNT", "  ")
+    assert a_run_against(tmp_path, monkeypatch, Fake(author=BOT)) == 0
+    assert "PR_ACCOUNT is empty" in capsys.readouterr().out
+
+
+def test_the_first_push_of_a_run_compares_nothing(tmp_path, monkeypatch, capsys):
+    """A body written for another run opens nothing, so there is no author to read."""
+    monkeypatch.setenv("PR_ACCOUNT", LOGIN)
+    code = a_run(tmp_path, "Closes #28\n\n## What\n\nThe run before this one.\n")
+    assert code == 0
+    printed = capsys.readouterr()
+    assert "PR_ACCOUNT" not in printed.out
+    assert printed.err == ""
+
+
+ACCOUNT_FROM_A_VARIABLE = "PR_ACCOUNT: ${{ vars.PR_ACCOUNT }}"
+
+
+def the_account_is_not_handed_over(text: str) -> list[str]:
+    """Every reason the publish step would run with no account to compare against.
+
+    The variable is a setting and the workflow is what hands it over. A step that drops it
+    leaves the publisher saying it compared nothing on every run, on a repository that set it.
+    """
+    lines = [line for line in text.splitlines() if not line.lstrip().startswith("#")]
+    if ACCOUNT_FROM_A_VARIABLE not in "\n".join(lines):
+        return ["the publish step does not hand over the repository variable PR_ACCOUNT"]
+    return []
+
+
+def test_the_publish_step_hands_over_the_account_to_expect():
+    assert the_account_is_not_handed_over(WORKFLOW.read_text(encoding="utf-8")) == []
+
+
+def test_a_publish_step_that_drops_the_account_is_refused():
+    planted = WORKFLOW.read_text(encoding="utf-8").replace(ACCOUNT_FROM_A_VARIABLE, "")
+    assert the_account_is_not_handed_over(planted)
