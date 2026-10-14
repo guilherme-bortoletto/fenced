@@ -76,15 +76,24 @@ enough to read it off.
     every number in the text answered for by one of them.
 14. `docs/adr/0016-a-reply-is-a-template-of-typed-fields.md`. Why a value proves which source built
     it, and what happens to a number nobody can answer for.
-15. `src/fenced/ports/`. The record store and the journal, as the methods the write layer calls
-    and nothing about where either one lives.
+15. `src/fenced/ports/`. The record store and the journal, as the methods the write layer calls,
+    and the extractor, the clock and the inbox, as what the command line asks of each. Nothing
+    there says where anything lives.
 16. `src/fenced/writes/`. A write as a plan and its diff, an executor that simulates unless it is
     told otherwise, a journal entry written before the store, and an undo read from that entry.
 17. `docs/adr/0018-a-write-is-journaled-first-and-undone-from-the-journal-alone.md`. Why the entry
     goes first, why it keeps a hash and not the text, and what a write that fails halfway leaves.
 
-The rest of the domain, the adapters and the command line arrive with the issues that build them,
-and each one gets its line here.
+18. `src/fenced/adapters/`. The outside world. The store and the journal as files, the inbox,
+    a clock, a fake extractor that reads by fixed rules, and `llm_extractor.py`, the only file
+    that names a model provider.
+19. `src/fenced/app/cli.py`. The command line. It reads `examples/messages.json`, prints each
+    lead with its next step and when that step is due, and shows the plan. It writes only with
+    `--write`, and `fenced undo N` takes a run back by the number it was written as.
+20. `docs/adr/0019-the-command-line-simulates-with-the-fake-extractor-unless-told-otherwise.md`.
+    Why the default run needs no key, why the message is never the model's, and what a run id is.
+
+What is still missing arrives with the issue that builds it, and gets its line here.
 
 ## Run it
 
@@ -94,7 +103,21 @@ python -m pytest
 python scripts/gates.py
 ```
 
+The command line, over the invented messages in `examples/`.
+
+```
+fenced run                  # show each lead, its next step and the plan, and write nothing
+fenced run --write          # write the plan and journal it as run 1
+fenced undo 1               # show what taking run 1 back would change
+fenced undo 1 --write       # take it back
+```
+
+The store and the journal are files under `.fenced/`, which git leaves out. `--store` puts them
+somewhere else, and `--now` reads the windows against a moment you give instead of the clock.
+
 No key, no network, no service. If any command here asks you for a credential, that is a bug.
+The one exception is a run with `--extractor model`, which reads the key from
+`FENCED_LLM_API_KEY` and says so and stops when it is not set.
 
 ## What the model is not allowed to decide
 

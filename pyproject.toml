@@ -11,6 +11,9 @@ requires-python = ">=3.12"
 authors = [{ name = "Guilherme Bortoletto" }]
 dependencies = []
 
+[project.scripts]
+fenced = "fenced.app.cli:main"
+
 [project.optional-dependencies]
 dev = ["pytest>=8"]
 
