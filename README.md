@@ -51,7 +51,7 @@ enough to read it off.
 ## Fifteen minute tour
 
 1. `tests/test_fences.py`. The point of the repository. Six rules, eight checks, thirty eight
-   tests that plant a tree a check has to refuse, and two tests that plant a tree it has to
+   tests that plant a tree a check has to refuse, and five tests that plant a tree it has to
    accept.
 2. `docs/adr/0001-architecture-rules-live-in-tests.md`. Why they are tests and not a config file.
 3. `scripts/gates.py`. The same rules on text, for the places a test cannot reach.

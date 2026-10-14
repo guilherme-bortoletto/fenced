@@ -1,1 +1,1 @@
-adapters and a command line
+decisions: the model at the edge, writes that simulate, no secret
