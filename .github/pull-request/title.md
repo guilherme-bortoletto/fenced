@@ -1,1 +1,1 @@
-the command line scores each lead and names who takes it
+the command line drafts the reply, and a person sends it

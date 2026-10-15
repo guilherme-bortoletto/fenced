@@ -7,8 +7,8 @@ again before every commit an agent makes in here, through the hook in `.claude/s
 
 The fences are in and green, and the domain sits behind them. The command line reads invented
 messages, turns each one into a lead, names its next step and when it is due, scores it, names
-the seller who takes it, and plans the write that records it. The reply is domain code with its
-own tests, and the command line does not call it yet.
+the seller who takes it, prints the reply as a draft for a person to send, and plans the write
+that records the lead. It sends nothing.
 
 ## Why
 
@@ -92,9 +92,11 @@ enough to read it off.
 19. `src/fenced/app/cli.py`. The command line. It reads `examples/messages.json`, prints each
     lead with its next step and when that step is due, then its segment, its language and the
     products the person named, then its score in three parts and a total and the seller who
-    takes it, and shows the plan. A lead scoring or matching refuses prints the refusal by name.
-    It writes only with `--write`, and `fenced undo N` takes a run back by the number it was
-    written as.
+    takes it, then the reply as a draft for that seller to send, and shows the plan. A lead
+    scoring or matching refuses prints the refusal by name, and a lead with no seller prints
+    why it has no draft. The replies are written in English, so a lead in another language
+    prints `WrongLanguage` where its draft would be. It sends nothing. It writes only with `--write`, and `fenced undo N`
+    takes a run back by the number it was written as.
 20. `examples/`. The invented messages, and the invented catalog, margin table, purchase
     history and roster a run scores and matches against.
 21. `docs/adr/0019-the-command-line-simulates-with-the-fake-extractor-unless-told-otherwise.md`.
@@ -105,17 +107,19 @@ enough to read it off.
     wrong language and a wrong segment cost, and why each one is refused where it is.
 24. `docs/adr/0025-a-lead-nobody-can-take-is-still-written.md`. Why a lead nobody can take is
     still written, and why the score and the seller are printed and not stored.
-25. `docs/adr/0021-no-secret-enters-the-tree.md`. What the fence on secrets catches and what it
+25. `docs/adr/0026-a-draft-is-printed-and-kept-nowhere.md`. Why a draft is printed and kept in
+    no file, the journal least of all, and why a lead in another language gets none.
+26. `docs/adr/0021-no-secret-enters-the-tree.md`. What the fence on secrets catches and what it
     misses, each as far as a named test proves it.
-26. `SECURITY.md`. How to report a problem, and what this repository promises about secrets and
+27. `SECURITY.md`. How to report a problem, and what this repository promises about secrets and
     data.
-27. `AGENTS.md`. The rules an agent works under in here, from what never enters the tree to
+28. `AGENTS.md`. The rules an agent works under in here, from what never enters the tree to
     the shape of a pull request.
-28. `.github/workflows/pull-request.yml`. The job that opens a pull request from a runner, with
+29. `.github/workflows/pull-request.yml`. The job that opens a pull request from a runner, with
     the text the branch carries and the rules `main` carries.
-29. `scripts/publish.py`. The one way a pull request body leaves this repository, once and never
+30. `scripts/publish.py`. The one way a pull request body leaves this repository, once and never
     edited.
-30. `docs/adr/0008-a-pull-request-is-opened-from-a-workflow-runner.md`. Why that call is made
+31. `docs/adr/0008-a-pull-request-is-opened-from-a-workflow-runner.md`. Why that call is made
     from a runner and not from the machine the code is written on.
 
 A new file gets its line here with the pull request that adds it.
@@ -148,7 +152,7 @@ runs offline. The command line also runs straight from the clone with nothing in
 The command line, over the invented messages in `examples/`.
 
 ```
-fenced run                  # show each lead, its next step, its score, its seller and the plan
+fenced run                  # show each lead, its next step, its score, its seller, its draft and the plan
 fenced run --write          # write the plan and journal it as run 1
 fenced undo 1               # show what taking run 1 back would change
 fenced undo 1 --write       # take it back
@@ -171,8 +175,12 @@ The one exception is a run with `--extractor model`, which reads the key from
 | turnaround | a written rule |
 | who takes the lead | a deterministic match |
 | how good the lead is | a calculation over data |
+| what the reply says | a template filled by typed fields |
+| whether the reply is sent | a person |
 
-The model never writes the reply. It fills typed fields, and a field it cannot type does not exist.
+The model never writes the reply. It fills the fields of a lead, and the reply is a template filled
+by fields only the catalog, the matching and the playbook can build. The command line prints it as
+a draft and a person sends it.
 
 ## What this is not
 

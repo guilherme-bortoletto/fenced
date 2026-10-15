@@ -34,3 +34,4 @@ below fails the build, and so does a row below that points at a file that is not
 | [0023 A pull request body is published by the push that changed it](0023-a-body-is-published-by-the-push-that-wrote-it.md) | accepted |
 | [0024 What a wrong product, language or segment costs](0024-what-a-wrong-product-language-or-segment-costs.md) | accepted |
 | [0025 A lead nobody can take is still written to the store](0025-a-lead-nobody-can-take-is-still-written.md) | accepted |
+| [0026 A draft is printed and kept nowhere](0026-a-draft-is-printed-and-kept-nowhere.md) | accepted |

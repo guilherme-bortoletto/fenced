@@ -23,6 +23,16 @@ writes by hand is the same claim with the digits taken out. What is fenced is th
 and the number. A claim a template makes in words is the caller's, and
 `docs/adr/0016` names that limit beside the other two.
 
+`draft` is what a caller with a lead reaches for. It takes the level, the language the lead
+wrote in, the products it named, the catalog and the seller the match picked, builds every
+field the template names from those, and renders the reply. It sends nothing, because
+nothing here can.
+
+The templates are written in one language, which is `WRITTEN_IN`. A lead that wrote in any
+other is refused with `WrongLanguage` and gets no draft. A draft in a language the person
+did not write in is the cost `docs/adr/0024` names as the costliest of the three fields,
+and `docs/adr/0026` says why no draft is better than that one.
+
 Everything here is a pure function of what is passed in. Nothing opens a file, reads a
 clock or asks a service.
 """
@@ -35,6 +45,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from enum import Enum
 
+from fenced.domain.lead import Language
 from fenced.domain.matching import Seller
 from fenced.domain.playbook import Action, next_step, window_hours
 
@@ -44,6 +55,9 @@ ZERO = Decimal(0)
 PLACEHOLDER = re.compile(r"\{([a-z_]+)\}")
 # One run of digits. The check reads runs and not shapes, which is the whole of the rule.
 DIGITS = re.compile(r"\d+")
+# The language every template below is written in. A lead in another language gets no draft,
+# because a reply in a language the person did not write in is worse than none.
+WRITTEN_IN = Language.ENGLISH
 
 
 class Source(Enum):
@@ -99,6 +113,10 @@ class InvalidSource(ReplyError):
 
 class UnknownProduct(ReplyError):
     """A product name the catalog does not carry, so it has no price and no spelling."""
+
+
+class WrongLanguage(ReplyError):
+    """A lead written in a language the templates are not written in, so it gets no draft."""
 
 
 class UnsourcedNumber(ReplyError):
@@ -369,3 +387,40 @@ def reply(awareness: object, fields: object) -> str:
     if "window" in fields:
         raise UnusedField("a reply builds its own window, from the level of awareness it reads")
     return render(TEMPLATES[step.action], {**fields, "window": window(awareness)})
+
+
+def draft(
+    awareness: object, language: object, wanted: object, catalog: object, picked: object
+) -> str:
+    """The reply for one lead, with every field its template names built from its source.
+
+    The template is the one `reply` picks for the level, and only the fields it names are
+    built, so no field goes unused. The product and its price are the first product the
+    lead named, which is the one the person wrote first. The quantity counts all of them.
+    A lead that names no product has no product to name, and it is refused here.
+
+    The language is read first. It is parsed the way the boundary parses it, and a lead
+    that wrote in a language other than `WRITTEN_IN` is refused with `WrongLanguage` before
+    any field is built, so a seller who speaks the language does not get a reply that
+    does not.
+    """
+    written = Language.parse(language)
+    if written is not WRITTEN_IN:
+        raise WrongLanguage(
+            f"the replies are written in {WRITTEN_IN.value} and this lead wrote in {written.value}"
+        )
+    if isinstance(wanted, str) or not isinstance(wanted, Sequence):
+        raise InvalidSource(
+            f"a lead names products in a sequence, not in a {type(wanted).__name__}"
+        )
+    if not wanted:
+        raise InvalidSource("a lead that names no product has no product to name in a reply")
+    first = wanted[0]
+    builders = {
+        "product": lambda: product(first, catalog),
+        "price": lambda: price(first, catalog),
+        "quantity": lambda: quantity(wanted, catalog),
+        "seller": lambda: seller(picked),
+    }
+    names = named_fields(TEMPLATES[next_step(awareness).action])
+    return reply(awareness, {name: builders[name]() for name in names if name != "window"})

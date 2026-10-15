@@ -8,7 +8,7 @@ from decimal import Decimal
 
 import pytest
 
-from fenced.domain.lead import Awareness, UnknownAwareness
+from fenced.domain.lead import Awareness, Language, UnknownAwareness, UnknownLanguage
 from fenced.domain.matching import Seller
 from fenced.domain.playbook import PLAYBOOK, Action, window_hours
 from fenced.domain.reply import (
@@ -25,6 +25,9 @@ from fenced.domain.reply import (
     UnknownProduct,
     UnsourcedNumber,
     UnusedField,
+    WRITTEN_IN,
+    WrongLanguage,
+    draft,
     named_fields,
     price,
     product,
@@ -381,3 +384,75 @@ def test_the_same_fields_render_the_same_reply_every_time():
     first = render(template, {**supplied(template), "window": window(Awareness.SOLUTION_AWARE)})
     second = render(template, {**supplied(template), "window": window(Awareness.SOLUTION_AWARE)})
     assert first == second
+
+
+# A draft, which builds the fields its template names from the lead, the catalog and the match.
+
+
+@pytest.mark.parametrize("level", list(Awareness))
+def test_a_draft_is_the_reply_its_template_asks_for(level):
+    template = TEMPLATES[PLAYBOOK[level].action]
+    assert draft(level, Language.ENGLISH, NAMED, CATALOG, PICKED) == reply(level, supplied(template))
+
+
+def test_a_draft_names_the_first_product_the_lead_named_and_counts_them_all():
+    text = draft(Awareness.SOLUTION_AWARE, Language.ENGLISH, list(reversed(NAMED)), CATALOG, PICKED)
+    assert "You asked about 2 of the things we carry" in text
+    assert "with Data cleanup at 900.50 beside the rest" in text
+
+
+def test_a_draft_for_a_product_written_twice_counts_it_once():
+    text = draft(Awareness.SOLUTION_AWARE, Language.ENGLISH, [NAMED[0], NAMED[0]], CATALOG, PICKED)
+    assert "You asked about 1 of the things we carry" in text
+
+
+@pytest.mark.parametrize("wanted", [[], "Data cleanup", None, {"Data cleanup": 1}])
+def test_a_draft_needs_a_sequence_with_a_product_in_it(wanted):
+    with pytest.raises(InvalidSource):
+        draft(Awareness.PRODUCT_AWARE, Language.ENGLISH, wanted, CATALOG, PICKED)
+
+
+def test_a_draft_refuses_a_product_the_catalog_does_not_carry():
+    with pytest.raises(UnknownProduct):
+        draft(Awareness.PRODUCT_AWARE, Language.ENGLISH, ["Gold plating"], CATALOG, PICKED)
+    with pytest.raises(UnknownProduct):
+        draft(Awareness.SOLUTION_AWARE, Language.ENGLISH, [NAMED[0], "Gold plating"], CATALOG, PICKED)
+
+
+def test_a_draft_refuses_a_seller_the_match_did_not_pick():
+    with pytest.raises(InvalidSource):
+        draft(Awareness.PRODUCT_AWARE, Language.ENGLISH, NAMED, CATALOG, "Ada")
+
+
+def test_a_draft_refuses_a_sixth_level():
+    with pytest.raises(UnknownAwareness):
+        draft("very_aware", Language.ENGLISH, NAMED, CATALOG, PICKED)
+
+
+# A draft is written in the language of the templates or it is not written at all.
+
+
+@pytest.mark.parametrize("language", [code for code in Language if code is not WRITTEN_IN])
+def test_a_draft_refuses_a_lead_in_a_language_the_templates_are_not_written_in(language):
+    with pytest.raises(WrongLanguage) as refused:
+        draft(Awareness.PRODUCT_AWARE, language, NAMED, CATALOG, PICKED)
+    assert str(refused.value) == (
+        f"the replies are written in en and this lead wrote in {language.value}"
+    )
+
+
+def test_a_draft_refuses_the_wrong_language_before_it_builds_a_field():
+    with pytest.raises(WrongLanguage):
+        draft(Awareness.PRODUCT_AWARE, Language.PORTUGUESE, ["Gold plating"], CATALOG, "Ada")
+
+
+def test_a_draft_reads_its_language_the_way_the_boundary_does():
+    assert draft(Awareness.PRODUCT_AWARE, " EN ", NAMED, CATALOG, PICKED) == draft(
+        Awareness.PRODUCT_AWARE, Language.ENGLISH, NAMED, CATALOG, PICKED
+    )
+    with pytest.raises(UnknownLanguage):
+        draft(Awareness.PRODUCT_AWARE, "klingon", NAMED, CATALOG, PICKED)
+
+
+def test_the_templates_are_written_in_english():
+    assert WRITTEN_IN is Language.ENGLISH
