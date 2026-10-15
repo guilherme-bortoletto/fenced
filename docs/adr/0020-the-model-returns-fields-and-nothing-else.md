@@ -65,3 +65,6 @@ handed back and the rest go on.
 Asking for more means a field of its own. The products a person asked about and the language they
 wrote in are not returned today, as record 0019 says, and each one is a property in the schema, a
 type the boundary checks, and a decision about what a wrong value costs.
+
+Record 0024 adds the products, the language and the segment as fields of their own, and says what
+each one costs when the model gets it wrong.

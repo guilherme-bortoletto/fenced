@@ -16,4 +16,8 @@ class Extractor(Protocol):
     """Something that turns free text into fields."""
 
     def extract(self, text: str) -> Mapping[str, object]:
-        """The fields found in this text, which are a name, an address and an awareness."""
+        """The fields found in this text.
+
+        They are a name, an address, an awareness, the products named, the language and
+        the segment.
+        """

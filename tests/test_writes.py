@@ -77,7 +77,15 @@ class Journal:
 
 
 def lead(name="Ana", email="ana@example.com", message=MESSAGE, awareness="problem_aware"):
-    return Lead(name=name, email=email, message=message, awareness=awareness)
+    return Lead(
+        name=name,
+        email=email,
+        message=message,
+        awareness=awareness,
+        segment="retail",
+        language="en",
+        products=(),
+    )
 
 
 def three_leads():

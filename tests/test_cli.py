@@ -24,9 +24,9 @@ from fenced.app.cli import main
 ROOT = Path(__file__).resolve().parent.parent
 EXAMPLES = ROOT / "examples"
 INBOX = EXAMPLES / "messages.json"
-# Late for the two most aware leads of the examples and open for the other three.
+# Late for the two most aware leads of the examples and open for the other five.
 NOW = "2026-10-06T10:00:00+00:00"
-LEADS = 5
+LEADS = 7
 
 
 @pytest.fixture(autouse=True)
@@ -80,6 +80,21 @@ def test_a_run_prints_each_lead_with_its_next_step_and_hands_one_back(tmp_path):
     assert "unaware, next name_the_problem within 72 hours, due 2026-10-08T08:10:00+00:00, open" in out
     assert "ready_to_buy, next hand_to_a_person within 2 hours, due 2026-10-05T17:00:00+00:00, late" in out
     assert "message m6 handed back, a lead needs email" in out
+
+
+def test_a_run_prints_the_segment_the_language_and_the_products_of_each_lead(tmp_path):
+    out = run(tmp_path / "store")[1]
+    assert "  food, en, products none named\n" in out
+    assert "  manufacturing, en, products 'Starter Kit', 'Shelf Scanner'\n" in out
+    assert "  health, en, products 'Stock Counter'\n" in out
+    assert "  retail, it, products 'Shelf Scanner'\n" in out
+
+
+def test_every_lead_of_the_examples_names_its_fields_and_most_name_a_product(tmp_path):
+    out = run(tmp_path / "store")[1]
+    asked = [line for line in out.splitlines() if ", products " in line]
+    assert len(asked) == LEADS
+    assert sum("none named" not in line for line in asked) >= LEADS - 1
 
 
 def test_the_clock_decides_which_step_is_late(tmp_path):

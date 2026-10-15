@@ -7,26 +7,36 @@
   {
     "id": "m2",
     "received_at": "2026-10-05T09:40:00+00:00",
-    "text": "Our stock count keeps drifting from what the shelves hold and it is a real problem for us.\n\nOtto Brennan\notto.brennan@example.org"
+    "text": "Our stock count keeps drifting from what the shelves hold and it is a real problem for us. Would the Stock Counter catch that?\n\nOtto Brennan\notto.brennan@example.org"
   },
   {
     "id": "m3",
     "received_at": "2026-10-05T11:05:00+00:00",
-    "text": "We are looking at a few options for tracking stock and want to compare what is out there.\n\nLena Marsh\nlena@example.net"
+    "text": "We are looking at a few options for tracking stock across our two warehouses and want to compare the Shelf Scanner with the Stock Counter.\n\nLena Marsh\nlena@example.net"
   },
   {
     "id": "m4",
     "received_at": "2026-10-05T13:30:00+00:00",
-    "text": "How much is the shelf scanner you showed at the fair?\n\nIvo Pardo\nivo.pardo@example.com"
+    "text": "How much is the Shelf Scanner you showed at the fair? We sell hardware from one shop.\n\nIvo Pardo\nivo.pardo@example.com"
   },
   {
     "id": "m5",
     "received_at": "2026-10-05T15:00:00+00:00",
-    "text": "We are ready to buy the starter kit this week. Please send the invoice.\n\nNoor Haddad\nnoor@example.org"
+    "text": "We are ready to buy the Starter Kit and the Shelf Scanner for our factory this week. Please send the invoice.\n\nNoor Haddad\nnoor@example.org"
   },
   {
     "id": "m6",
     "received_at": "2026-10-05T16:20:00+00:00",
-    "text": "Hi, please call me back about the counters.\n\nTess"
+    "text": "Hi, please call me back about the counters at the bakery.\n\nTess"
+  },
+  {
+    "id": "m7",
+    "received_at": "2026-10-05T17:10:00+00:00",
+    "text": "We run a small dental clinic and the glove drawer keeps running empty before the week is out. Could the Stock Counter warn us earlier?\n\nHana Okafor\nhana.okafor@example.net"
+  },
+  {
+    "id": "m8",
+    "received_at": "2026-10-05T18:30:00+00:00",
+    "text": "Buongiorno. Abbiamo un negozio di ferramenta e il nostro magazzino non torna mai con quello che vendiamo. Vorremmo sapere di più sullo Shelf Scanner.\n\nGiulia Ferri\ngiulia.ferri@example.com"
   }
 ]

@@ -9,7 +9,8 @@ A run reads every message in the inbox, asks the extractor for the fields, and b
 lead with the text the person wrote as its message. A message the boundary refuses is
 handed back by its id with the reason, and the rest go on. For each lead the run prints the
 next step the playbook names and the moment it is due, counted from when the message
-arrived and read against the clock. Then it plans the write, prints the diff, and applies it
+arrived and read against the clock, and then the segment, the language and the products
+the person named. Then it plans the write, prints the diff, and applies it
 only when `--write` is passed. The id of a run is the number of the journal entry it wrote,
 and `undo` takes that number.
 
@@ -93,6 +94,12 @@ def _step_line(lead: Lead, message: Message, now: datetime) -> str:
     )
 
 
+def _asked_line(lead: Lead) -> str:
+    """The segment, the language and the products of one lead, each product quoted."""
+    named = ", ".join(repr(product) for product in lead.products) or "none named"
+    return f"  {lead.segment.value}, {lead.language.value}, products {named}"
+
+
 def _show(outcome: Outcome, out: TextIO) -> None:
     """The diff an apply returned, indented under the plan."""
     for line in outcome.diff:
@@ -115,6 +122,7 @@ def _read(
             continue
         print(f"message {message['id']} from {lead.name} <{lead.email}>", file=out)
         print(_step_line(lead, message, now), file=out)
+        print(_asked_line(lead), file=out)
         leads.append(lead)
     return leads
 
