@@ -25,6 +25,7 @@ from fenced.domain.reply import (
     UnknownProduct,
     UnsourcedNumber,
     UnusedField,
+    draft,
     named_fields,
     price,
     product,
@@ -381,3 +382,46 @@ def test_the_same_fields_render_the_same_reply_every_time():
     first = render(template, {**supplied(template), "window": window(Awareness.SOLUTION_AWARE)})
     second = render(template, {**supplied(template), "window": window(Awareness.SOLUTION_AWARE)})
     assert first == second
+
+
+# A draft, which builds the fields its template names from the lead, the catalog and the match.
+
+
+@pytest.mark.parametrize("level", list(Awareness))
+def test_a_draft_is_the_reply_its_template_asks_for(level):
+    template = TEMPLATES[PLAYBOOK[level].action]
+    assert draft(level, NAMED, CATALOG, PICKED) == reply(level, supplied(template))
+
+
+def test_a_draft_names_the_first_product_the_lead_named_and_counts_them_all():
+    text = draft(Awareness.SOLUTION_AWARE, list(reversed(NAMED)), CATALOG, PICKED)
+    assert "You asked about 2 of the things we carry" in text
+    assert "with Data cleanup at 900.50 beside the rest" in text
+
+
+def test_a_draft_for_a_product_written_twice_counts_it_once():
+    text = draft(Awareness.SOLUTION_AWARE, [NAMED[0], NAMED[0]], CATALOG, PICKED)
+    assert "You asked about 1 of the things we carry" in text
+
+
+@pytest.mark.parametrize("wanted", [[], "Data cleanup", None, {"Data cleanup": 1}])
+def test_a_draft_needs_a_sequence_with_a_product_in_it(wanted):
+    with pytest.raises(InvalidSource):
+        draft(Awareness.PRODUCT_AWARE, wanted, CATALOG, PICKED)
+
+
+def test_a_draft_refuses_a_product_the_catalog_does_not_carry():
+    with pytest.raises(UnknownProduct):
+        draft(Awareness.PRODUCT_AWARE, ["Gold plating"], CATALOG, PICKED)
+    with pytest.raises(UnknownProduct):
+        draft(Awareness.SOLUTION_AWARE, [NAMED[0], "Gold plating"], CATALOG, PICKED)
+
+
+def test_a_draft_refuses_a_seller_the_match_did_not_pick():
+    with pytest.raises(InvalidSource):
+        draft(Awareness.PRODUCT_AWARE, NAMED, CATALOG, "Ada")
+
+
+def test_a_draft_refuses_a_sixth_level():
+    with pytest.raises(UnknownAwareness):
+        draft("very_aware", NAMED, CATALOG, PICKED)

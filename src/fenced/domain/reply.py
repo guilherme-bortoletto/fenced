@@ -23,6 +23,10 @@ writes by hand is the same claim with the digits taken out. What is fenced is th
 and the number. A claim a template makes in words is the caller's, and
 `docs/adr/0016` names that limit beside the other two.
 
+`draft` is what a caller with a lead reaches for. It takes the level, the products the lead
+named, the catalog and the seller the match picked, builds every field the template names
+from those, and renders the reply. It sends nothing, because nothing here can.
+
 Everything here is a pure function of what is passed in. Nothing opens a file, reads a
 clock or asks a service.
 """
@@ -369,3 +373,28 @@ def reply(awareness: object, fields: object) -> str:
     if "window" in fields:
         raise UnusedField("a reply builds its own window, from the level of awareness it reads")
     return render(TEMPLATES[step.action], {**fields, "window": window(awareness)})
+
+
+def draft(awareness: object, wanted: object, catalog: object, picked: object) -> str:
+    """The reply for one lead, with every field its template names built from its source.
+
+    The template is the one `reply` picks for the level, and only the fields it names are
+    built, so no field goes unused. The product and its price are the first product the
+    lead named, which is the one the person wrote first. The quantity counts all of them.
+    A lead that names no product has no product to name, and it is refused here.
+    """
+    if isinstance(wanted, str) or not isinstance(wanted, Sequence):
+        raise InvalidSource(
+            f"a lead names products in a sequence, not in a {type(wanted).__name__}"
+        )
+    if not wanted:
+        raise InvalidSource("a lead that names no product has no product to name in a reply")
+    first = wanted[0]
+    builders = {
+        "product": lambda: product(first, catalog),
+        "price": lambda: price(first, catalog),
+        "quantity": lambda: quantity(wanted, catalog),
+        "seller": lambda: seller(picked),
+    }
+    names = named_fields(TEMPLATES[next_step(awareness).action])
+    return reply(awareness, {name: builders[name]() for name in names if name != "window"})

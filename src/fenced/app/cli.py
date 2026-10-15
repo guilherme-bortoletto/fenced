@@ -13,9 +13,11 @@ arrived and read against the clock, and then the segment, the language and the p
 the person named. Then it prints the score with its three parts and its total, and the
 seller the match picks at the ticket the catalog prices those products at. A lead that
 names no product, names one the catalog does not carry, or that no seller can take prints
-that refusal by name instead, and is still planned like any other lead. Then it plans the
-write, prints the diff, and applies it only when `--write` is passed. The id of a run is the number of the journal entry it wrote,
-and `undo` takes that number.
+that refusal by name instead, and is still planned like any other lead. A lead with a seller
+prints the reply as a draft for a person to send, and a lead with none prints why it has no
+draft. Nothing is sent and no draft is kept. Then it plans the write, prints the diff, and
+applies it only when `--write` is passed. The id of a run is the number of the journal entry
+it wrote, and `undo` takes that number.
 
 The extractor is the fake one unless `--extractor model` is passed, so the default run needs
 no key and no network. The store and the journal are files under `--store`, which is
@@ -49,6 +51,7 @@ from fenced.adapters.llm_extractor import LlmError, LlmExtractor, MissingKey
 from fenced.domain.lead import Lead, LeadError
 from fenced.domain.matching import MatchError, Need, NobodyEligible, Seller, match
 from fenced.domain.playbook import next_step
+from fenced.domain.reply import ReplyError, draft
 from fenced.domain.scoring import NothingToScore, ScoreError, UnknownProduct, score, ticket
 from fenced.ports.catalog import Catalog
 from fenced.ports.clock import Clock
@@ -78,6 +81,9 @@ EXTRACTORS: Mapping[str, Callable[[Mapping[str, str]], Extractor]] = {
 # that is not the shape it claims, and it stops the run rather than repeat once per lead.
 UNSCORED = (NothingToScore, UnknownProduct)
 UNMATCHED = (NobodyEligible,)
+# What a lead with no seller prints where its draft would be. A reply names the seller who
+# writes back, so a lead nobody takes has no reply to draft.
+NO_DRAFT = "  no draft, a reply names the seller who takes the lead and this lead has none"
 # The exit codes. A refusal is the core saying no, and a usage error is the command line
 # being called wrongly, which is also what `argparse` exits with.
 DONE, REFUSED, USAGE = 0, 1, 2
@@ -150,17 +156,18 @@ def _refusal(refused: Exception) -> str:
 
 
 def _judged_lines(lead: Lead, tables: Tables) -> list[str]:
-    """The score of one lead and the seller who takes it, or the refusal of either one.
+    """The score of one lead, the seller who takes it and the draft, or why there is none.
 
-    Every number here is one that scoring or matching returned. This function asks them and
-    prints what they answer, and decides nothing of its own.
+    Every number here is one that scoring or matching returned, and the draft is the one
+    `reply.draft` renders. This function asks them and prints what they answer, and decides
+    nothing of its own. The draft is printed and kept nowhere, and record 0026 says why.
     """
     try:
         orders = tables.history.orders(key_of(lead))
         scored = score(lead.products, tables.prices, orders, tables.margins)
         basket = ticket(lead.products, tables.prices)
     except UNSCORED as refused:
-        return [f"  not scored, {_refusal(refused)}"]
+        return [f"  not scored, {_refusal(refused)}", NO_DRAFT]
     lines = [
         f"  score revenue {scored.revenue}, recurrence {scored.recurrence}, "
         f"margin {scored.margin}, total {scored.total}"
@@ -169,9 +176,13 @@ def _judged_lines(lead: Lead, tables: Tables) -> list[str]:
     try:
         seller = match(need, tables.sellers)
     except UNMATCHED as refused:
-        lines.append(f"  ticket {basket}, nobody takes it, {_refusal(refused)}")
+        lines += [f"  ticket {basket}, nobody takes it, {_refusal(refused)}", NO_DRAFT]
     else:
-        lines.append(f"  ticket {basket}, taken by {seller.name}")
+        lines += [
+            f"  ticket {basket}, taken by {seller.name}",
+            f"  draft for {seller.name} to send, nothing was sent",
+            f"    {draft(lead.awareness, lead.products, tables.prices, seller)}",
+        ]
     return lines
 
 
@@ -281,7 +292,14 @@ def main(
         print(stopped, file=err)
         return USAGE
     except (
-        FileError, LlmError, PlanError, WriteError, JournalError, ScoreError, MatchError
+        FileError,
+        LlmError,
+        PlanError,
+        WriteError,
+        JournalError,
+        ScoreError,
+        MatchError,
+        ReplyError,
     ) as refused:
         print(f"refused, {refused}", file=err)
         return REFUSED

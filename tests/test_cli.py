@@ -21,7 +21,9 @@ from pathlib import Path
 import pytest
 
 from fenced.app.cli import main
+from fenced.domain.lead import Awareness
 from fenced.domain.matching import Need, NobodyEligible, Seller, match
+from fenced.domain.reply import draft
 from fenced.domain.scoring import WEIGHTS, score, ticket
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -177,6 +179,81 @@ def test_every_number_printed_is_one_scoring_and_matching_produced(tmp_path):
         except NobodyEligible:
             assert "nobody takes it, NobodyEligible" in block
     assert judged == 5
+
+
+DRAFT = re.compile(r"^  draft for (.+) to send, nothing was sent\n    (.+)$", re.MULTILINE)
+NO_DRAFT = "  no draft, a reply names the seller who takes the lead and this lead has none\n"
+
+
+def test_a_lead_with_a_seller_prints_its_reply_as_a_draft_nobody_sent(tmp_path):
+    out = run(tmp_path / "store")[1]
+    assert (
+        "  ticket 950, taken by Ada Fenwick\n"
+        "  draft for Ada Fenwick to send, nothing was sent\n"
+        "    Thanks for writing. Before we talk about Stock Counter, Ada Fenwick will ask what "
+        "you have already tried, and will write back within 48 hours.\n"
+    ) in out
+    assert (
+        "    Thanks for writing. You asked about 2 of the things we carry. Bram Holt will send "
+        "a comparison within 24 hours, with Shelf Scanner at 1800 beside the rest.\n"
+    ) in out
+    assert (
+        "    Thanks for writing. Shelf Scanner is 1800. Ada Fenwick will offer you a call "
+        "within 8 hours.\n"
+    ) in out
+
+
+def test_a_lead_with_no_seller_prints_no_draft_and_says_why(tmp_path):
+    out = run(tmp_path / "store")[1]
+    blocks = re.split(r"^message ", out.split("\n\nplan for")[0], flags=re.MULTILINE)[1:]
+    for block in blocks:
+        if " handed back, " in block.splitlines()[0]:
+            assert "draft" not in block
+        elif "taken by " in block:
+            assert DRAFT.search(block) and NO_DRAFT not in block
+        else:
+            assert NO_DRAFT in f"{block}\n" and DRAFT.search(block) is None
+    assert out.count(NO_DRAFT) == 4
+    assert len(DRAFT.findall(out)) == 3
+
+
+def test_every_draft_printed_is_the_one_the_reply_renders_for_that_lead(tmp_path):
+    out = run(tmp_path / "store")[1]
+    catalog = {
+        row["name"]: row["price"]
+        for row in json.loads((EXAMPLES / "catalog.json").read_text(encoding="utf-8"))
+    }
+    sellers = {
+        row["name"]: Seller(**row)
+        for row in json.loads((EXAMPLES / "sellers.json").read_text(encoding="utf-8"))
+    }
+    blocks = re.split(r"^message ", out.split("\n\nplan for")[0], flags=re.MULTILINE)[1:]
+    drafted = 0
+    for block in blocks:
+        found = DRAFT.search(block)
+        if found is None:
+            continue
+        drafted += 1
+        level = re.search(r"^  (\w+), next ", block, re.MULTILINE).group(1)
+        named = re.search(r"^  \w+, \w+, products (.+)$", block, re.MULTILINE).group(1)
+        products = re.findall(r"'([^']+)'", named)
+        assert f"taken by {found.group(1)}\n" in block
+        picked = sellers[found.group(1)]
+        assert found.group(2) == draft(Awareness.parse(level), products, catalog, picked)
+    assert drafted == 3
+
+
+def test_a_draft_is_kept_in_neither_file(tmp_path):
+    store = tmp_path / "store"
+    out = run(store, "--write")[1]
+    drafts = [text for _, text in DRAFT.findall(out)]
+    assert drafts
+    kept = (store / "store.json").read_text(encoding="utf-8")
+    kept += (store / "journal.jsonl").read_text(encoding="utf-8")
+    assert "Thanks for writing" not in kept
+    for text in drafts:
+        assert text not in kept
+    assert sorted(path.name for path in store.iterdir()) == ["journal.jsonl", "store.json"]
 
 
 def test_each_total_printed_is_the_weighted_sum_of_the_parts_beside_it(tmp_path):
@@ -353,6 +430,7 @@ def test_python_dash_m_fenced_runs_the_same_command(tmp_path):
     assert (finished.returncode, finished.stderr) == (0, "")
     assert "simulated, nothing was written" in finished.stdout
     assert "  ticket 1800, taken by Ada Fenwick\n" in finished.stdout
+    assert "  draft for Ada Fenwick to send, nothing was sent\n" in finished.stdout
 
 
 # The examples are invented, and the issue that asked for them asked for no phone number.
