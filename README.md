@@ -89,23 +89,26 @@ enough to read it off.
     a clock, a fake extractor that reads by fixed rules, and `llm_extractor.py`, the only file
     that names a model provider.
 19. `src/fenced/app/cli.py`. The command line. It reads `examples/messages.json`, prints each
-    lead with its next step and when that step is due, and shows the plan. It writes only with
+    lead with its next step and when that step is due, then its segment, its language and the
+    products the person named, and shows the plan. It writes only with
     `--write`, and `fenced undo N` takes a run back by the number it was written as.
 20. `docs/adr/0019-the-command-line-simulates-with-the-fake-extractor-unless-told-otherwise.md`.
     Why the default run needs no key, why the message is never the model's, and what a run id is.
 21. `docs/adr/0020-the-model-returns-fields-and-nothing-else.md`. Why the model is asked for
-    three fields and nothing more.
-22. `docs/adr/0021-no-secret-enters-the-tree.md`. What the fence on secrets catches and what it
+    fields and nothing more.
+22. `docs/adr/0024-what-a-wrong-product-language-or-segment-costs.md`. What a wrong product, a
+    wrong language and a wrong segment cost, and why each one is refused where it is.
+23. `docs/adr/0021-no-secret-enters-the-tree.md`. What the fence on secrets catches and what it
     misses, each as far as a named test proves it.
-23. `SECURITY.md`. How to report a problem, and what this repository promises about secrets and
+24. `SECURITY.md`. How to report a problem, and what this repository promises about secrets and
     data.
-24. `AGENTS.md`. The rules an agent works under in here, from what never enters the tree to
+25. `AGENTS.md`. The rules an agent works under in here, from what never enters the tree to
     the shape of a pull request.
-25. `.github/workflows/pull-request.yml`. The job that opens a pull request from a runner, with
+26. `.github/workflows/pull-request.yml`. The job that opens a pull request from a runner, with
     the text the branch carries and the rules `main` carries.
-26. `scripts/publish.py`. The one way a pull request body leaves this repository, once and never
+27. `scripts/publish.py`. The one way a pull request body leaves this repository, once and never
     edited.
-27. `docs/adr/0008-a-pull-request-is-opened-from-a-workflow-runner.md`. Why that call is made
+28. `docs/adr/0008-a-pull-request-is-opened-from-a-workflow-runner.md`. Why that call is made
     from a runner and not from the machine the code is written on.
 
 A new file gets its line here with the pull request that adds it.
