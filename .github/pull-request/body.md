@@ -1,58 +1,67 @@
-Closes #52
+Closes #53
 
 ## What
 
-A lead now carries a segment, a language and the products the person named, on top of the name, the address and the awareness.
+The command line now scores each lead and names the seller who takes it.
 
-`src/fenced/domain/lead.py` gains two closed sets, written the way `Awareness` is. `Segment` has `food`, `retail`, `wholesale`, `manufacturing` and `health`. `Language` has `en`, `pt`, `es`, `fr`, `de` and `it`. Both forgive case and spacing and refuse anything else, with `UnknownSegment` and `UnknownLanguage`. The products are a tuple of names as the person wrote them, trimmed and kept once in the order named. An empty list is a lead like any other. A string, a null, a number or a blank name is refused with `InvalidProducts`. All three are `LeadError`. `Lead.from_fields` refuses a mapping that lacks any of the seven fields, and the three awareness helpers now share one parser.
+`examples/` gains four invented tables. `catalog.json` prices three products. `margins.json` gives each of them a margin. `history.json` lists past orders for three addresses. `sellers.json` holds three sellers with their segments, ticket ranges and languages. The catalog leaves out `Starter Kit` on purpose, and no seller covers `health` or speaks Italian.
 
-`src/fenced/adapters/llm_extractor.py` asks the model for six fields. The schema adds `products` as an array of strings and `language` and `segment` as enums of the domain values plus the empty string. The prompt writes each language and each segment out by hand.
+Each table is read through a port of its own, `src/fenced/ports/catalog.py`, `margins.py`, `history.py` and `roster.py`. `src/fenced/adapters/json_tables.py` answers all four from JSON files. It checks the shape of a file and refuses a missing file, a row that is not an object, a name with no text and a name written twice. A roster row goes through the `Seller` constructor, and a row the domain refuses comes back as a broken file. A history is looked up by the address in lower case, and an address with no history gets an empty list.
 
-`src/fenced/adapters/fake_extractor.py` reads the three new fields by rules written at its top. A segment is the first row of a table of words. A language is the row of a table of short common words with the most hits. A product is a run of two or more capitalised words off the signature lines. A field the rules cannot find is left out, so the boundary refuses it.
+`src/fenced/domain/scoring.py` gains `ticket`, which adds up what the catalog prices the named products at. `revenue_score` now divides that same number, so the ticket matching reads and the revenue scoring reads are one number.
 
-The command line prints a third line for each lead, such as `retail, it, products 'Shelf Scanner'`.
+`src/fenced/app/cli.py` reads the four tables before the first lead and prints two more lines for each lead.
 
-`examples/messages.json` names three invented products across the messages. Two messages are new. One comes from a dental clinic in the `health` segment and one is written in Italian. Seven of the eight messages are leads and the one with no address is handed back as before.
+```
+  score revenue 0.190, recurrence 0.667, margin 0.350, total 0.3334
+  ticket 950, taken by Ada Fenwick
+```
 
-Record 0024 says what each new field costs when the model gets it wrong. Record 0020 gains one line at its end that points at it, and its decision is left as it was. The index lists the record and the README tour visits it as step 22.
+A lead that names no product prints `not scored, NothingToScore, ...`. A lead that names a product the catalog does not carry prints `not scored, UnknownProduct, ...`. A lead nobody can take prints its ticket and `nobody takes it, NobodyEligible, ...`. Any other refusal of scoring or matching comes from a table, and it stops the run with exit code 1 and nothing written. The four tables can be pointed elsewhere with `--catalog`, `--margins`, `--history` and `--sellers`.
+
+Record 0025 decides that a lead nobody can take is still written to the store, and that the score and the seller are printed and not stored. The index lists it, and the README tour visits `examples/` and the record as steps 20 and 24.
 
 ## Why
 
-Matching needs a segment, a ticket and a language, and scoring needs the products. None of them was on a lead, so the command line stopped after the next step. Record 0020 said each one is a property in the schema, a type the boundary checks and a decision about what a wrong value costs. This pull request is those three things for each field.
+Scoring and matching were domain code with their own tests that nothing on the command line called. A reader who ran `fenced run` never saw either one. Now the path a reader runs first goes through both.
 
 ## Tests
 
-`python -m pytest` passes 744 tests, under Python 3.13 and under 3.11. `python scripts/gates.py` is clean apart from the term rules, which had no list to read on this machine.
+`python -m pytest` passes 761 tests under Python 3.13 and under 3.11. `python scripts/gates.py` is clean apart from the term rules, which had no list to read on this machine.
 
 New tests plant these cases.
 
-- `tests/test_lead.py`. A lead carries the three fields. The two sets are pinned member by member. Case and spacing are forgiven. An empty value, an unknown segment, a language written as a word, a regional code and a list of two segments are refused. A value that is not text is refused. A missing segment, language or list of products is refused by name. An empty list of products is a lead. Products are trimmed and kept once in order. A string, a null, a mapping, a set, a null or a number in the list and a blank or invisible name are refused. The new fields cannot change after the lead is built.
-- `tests/test_adapters.py`. The fake extractor reads each segment row, refuses `workshop` as a shop, reads four languages and leaves out one it cannot find, and reads two products off the body while skipping the signature. Every example message is read into all six fields except the one with no address. The schema asks for exactly six fields, allows no other, and lets the model answer with an empty string for a language or a segment. The prompt names every language and every segment. An answer of six fields crosses the boundary.
-- `tests/test_cli.py`. A run prints the segment, the language and the products of each lead, and seven leads are planned.
+- `tests/test_scoring.py`. The ticket is the exact sum of catalog prices with no ceiling. It is the number the revenue dimension divides. It refuses an unknown product and an empty list the way revenue does.
+- `tests/test_adapters.py`. The four example tables are read through their ports. A catalog row with no price and a name written twice are refused. A table that is not there is refused for all four. A file of the wrong kind is refused. A history is found in any case and is empty for a stranger. A history that is not a list is refused. A seller the domain refuses and a seller row missing a field are refused as broken files.
+- `tests/test_cli.py`. A run prints the score and the seller of each lead it can judge. The four refusals print by name. Every number printed is checked against `scoring.score`, `scoring.ticket` and `matching.match` called over the same examples. Each printed total is the weighted sum of the printed parts. With `--write` the leads nobody can take, the lead with an unknown product and the lead that named none are all written, and the record keeps only its old fields. A roster with a name twice is refused before any lead is printed. A price that is not a number stops the run with nothing written. `python -m fenced` as a process prints a seller too.
 
-`fenced run` over the examples was run by hand and printed what the tests assert.
+All of it runs with the fake extractor and a fixture that refuses any socket. `fenced run` over the examples was run by hand and printed what the tests assert.
 
 ## Decisions I made
 
-- The two sets are my choice. Five segments that fit the invented messages, and six languages as two letter codes. Each is an enum, so a change is a red test.
-- The `health` segment and Italian are the two the sellers of issue 53 can leave uncovered. Both are in the sets, so those messages cross the boundary today and matching has something to refuse.
-- The schema allows the empty string for a language and a segment. With a strict enum the model would have to pick the nearest member for a message in Dutch, which is a guess. The empty string is then refused at the boundary like any other value outside the set.
-- An empty list of products is a lead. Scoring already refuses an empty list as nothing to score, so that refusal belongs to the scoring step and not to the boundary.
-- Products are deduplicated by exact text after trimming, the same way `scoring.py` does it. `Starter Kit` and `starter kit` stay two names, and the catalog decides in issue 53.
-- The store keeps the same record. The three fields are printed and not written, because nothing reads them back yet. Record 0024 says so.
-- The test that record 0020 names, `test_the_model_extractor_refuses_an_answer_that_is_not_three_fields`, keeps its name, so the record still points at a test that exists.
-- The fake extractor knows no product names. It reads capitalised runs, so it carries nothing of a catalog, and the invented products are written in capitals in the messages.
+- A lead nobody can take is written to the store, and so is a lead with an unknown product or with none named. The store record does not change. Record 0025 says why.
+- A refusal about a lead prints under that lead and the run goes on. A refusal about a table stops the run, because it would repeat under every lead.
+- The tables are read once, before the first lead, so a broken file is refused before anything is printed.
+- The ticket is computed by a new `scoring.ticket` and not in the command line, so the command line adds up nothing itself.
+- A lead that scoring refuses is not matched, because there is no ticket to match on.
+- The four adapters sit in one file, `json_tables.py`, because they share the same row checks. Each port is still a file of its own.
+- The catalog and the roster are lists of rows with a `name`, which is the shape fence four already reads. The margin table and the history are objects keyed by name and by address.
+- A history is keyed by address in lower case, the same key the store uses.
+- `Starter Kit` is left out of the catalog so the examples carry an unknown product. The roster leaves `health` and Italian uncovered, as record 0024 planned.
+- The default table paths are relative to the folder the command runs in, the way the inbox already is. The test that runs `python -m fenced` from a temporary folder now passes the four paths, as it already passed the inbox.
 
 ## Run notes
 
 > No dash used as punctuation and no semicolon, in Markdown or in a docstring. Short sentences. Describe what is there instead of selling it.
 
-Stall check found nothing. The last merge was pull request 51 yesterday, and no `claude/` pull request was open. The brake counted zero and no issue carried `stuck`. No pull request carried `needs-work`. Issues 52, 53 and 54 were open with `night`, and 52 was the lowest with no branch, so `claude/issue-52` was cut from `main`.
+The stall check found nothing. The last merge was pull request 55 today, and no `claude/` pull request was open. The brake counted zero and no issue carried `stuck`. No pull request carried `needs-work`. Issues 53 and 54 were open with `night`, and 53 was the lowest with no branch, so `claude/issue-53` was cut from `main`.
 
-The default interpreter here is Python 3.11 and the package needs 3.12, so I made a 3.13 virtual environment to run the suite. The first commit was blocked by the commit hook, because the interpreter it uses had no pytest. I installed pytest for that interpreter and committed again. The suite passes under both. No hook was skipped.
+Twice I changed directory into `src/` inside a shell command. The gate hook calls `scripts/gates.py` by a relative path, so every shell command after that failed before it ran. To get back I wrote a small file at that relative path that ran the real gate from the repository root, changed back to the root, and deleted the file at once. It never entered a commit. The hook could call the gate by an absolute path. I did not change it, because it is outside this issue.
 
-The first two pushes carried the code and the record. They left the body file as the run before me wrote it, so they published nothing.
+The first commit was blocked by the hook twice over. The interpreter it uses had no pytest, and the global git config of this machine carried an address that is not a GitHub noreply one. I installed pytest for that interpreter and set the noreply identity in the clone. The commit went through on the next try. No hook was skipped.
 
-I did not wire scoring or matching into the command line. That is issue 53. I did not keep the three fields in the store. I did not run the term rules, because no list was on this machine. I wrote no comment anywhere.
+The first push carried the code and left the body file as the run before me wrote it, so it published nothing.
 
-The gates took between 2.5 and 2.8 seconds a run, over three runs.
+I did not wire the reply into the command line. That is issue 54. I did not keep the score or the seller in the store. I did not run the term rules, because no list was on this machine. I wrote no comment anywhere.
+
+The gates took between 2.3 and 2.5 seconds a run, over four runs.

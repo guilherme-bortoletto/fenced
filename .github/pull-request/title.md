@@ -1,1 +1,1 @@
-lead: what the person asked about, the language and the segment
+the command line scores each lead and names who takes it

@@ -1,0 +1,7 @@
+{
+  "otto.brennan@example.org": ["Stock Counter", "Label Printer", "Stock Counter"],
+  "lena@example.net": ["Shelf Scanner"],
+  "ivo.pardo@example.com": [
+    "Label Printer", "Label Printer", "Shelf Scanner", "Label Printer", "Stock Counter"
+  ]
+}

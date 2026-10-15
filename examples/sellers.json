@@ -1,0 +1,23 @@
+[
+  {
+    "name": "Ada Fenwick",
+    "segments": ["retail"],
+    "smallest_ticket": 0,
+    "largest_ticket": 2000,
+    "languages": ["en", "es"]
+  },
+  {
+    "name": "Bram Holt",
+    "segments": ["retail", "wholesale"],
+    "smallest_ticket": 500,
+    "largest_ticket": 5000,
+    "languages": ["en", "pt"]
+  },
+  {
+    "name": "Cleo Dunmore",
+    "segments": ["food", "retail", "wholesale", "manufacturing"],
+    "smallest_ticket": 0,
+    "largest_ticket": 10000,
+    "languages": ["en", "pt", "es"]
+  }
+]

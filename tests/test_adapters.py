@@ -21,6 +21,7 @@ from fenced.adapters.json_crm import JsonCrm
 from fenced.adapters.json_files import FileError
 from fenced.adapters.json_inbox import JsonInbox
 from fenced.adapters.json_journal import JsonJournal
+from fenced.adapters.json_tables import JsonCatalog, JsonHistory, JsonMargins, JsonRoster
 from fenced.adapters.llm_extractor import (
     KEY_VARIABLE,
     MODEL_VARIABLE,
@@ -29,6 +30,7 @@ from fenced.adapters.llm_extractor import (
     MissingKey,
 )
 from fenced.domain.lead import FIELDS, Awareness, Language, Lead, Segment
+from fenced.domain.matching import Seller
 from fenced.writes.executor import apply
 from fenced.writes.plan import plan
 from fenced.writes.undo import undo
@@ -364,3 +366,75 @@ def test_a_provider_that_cannot_be_reached_is_a_refusal(monkeypatch):
     monkeypatch.setattr(urllib.request, "urlopen", unreachable)
     with pytest.raises(ExtractionFailed, match="could not be reached, no route"):
         LlmExtractor({KEY_VARIABLE: KEY}).extract("Hello")
+
+
+# The catalog, the margin table, the history and the roster.
+
+
+def written(path: Path, value: object) -> Path:
+    path.write_text(json.dumps(value), encoding="utf-8")
+    return path
+
+
+def test_the_example_tables_are_read_through_their_ports():
+    examples = ROOT / "examples"
+    prices = JsonCatalog(examples / "catalog.json").prices()
+    assert prices["Shelf Scanner"] == 1800
+    assert set(JsonMargins(examples / "margins.json").margins()) == set(prices)
+    assert JsonHistory(examples / "history.json").orders("lena@example.net") == ["Shelf Scanner"]
+    sellers = JsonRoster(examples / "sellers.json").sellers()
+    assert sellers and all(isinstance(seller, Seller) for seller in sellers)
+
+
+def test_a_catalog_row_with_no_price_or_a_name_twice_is_refused(tmp_path):
+    with pytest.raises(FileError, match="has no price"):
+        JsonCatalog(written(tmp_path / "c.json", [{"name": "Kit"}])).prices()
+    twice = [{"name": "Kit", "price": 1}, {"name": " Kit ", "price": 2}]
+    with pytest.raises(FileError, match="row 2 of .* carries the name 'Kit' a second time"):
+        JsonCatalog(written(tmp_path / "c.json", twice)).prices()
+
+
+def test_a_table_that_is_not_there_is_refused_and_not_read_as_empty(tmp_path):
+    for table in (
+        JsonCatalog(tmp_path / "gone.json").prices,
+        JsonMargins(tmp_path / "gone.json").margins,
+        JsonRoster(tmp_path / "gone.json").sellers,
+        lambda: JsonHistory(tmp_path / "gone.json").orders("a@example.com"),
+    ):
+        with pytest.raises(FileError, match="there is no"):
+            table()
+
+
+def test_a_table_of_the_wrong_kind_is_refused(tmp_path):
+    with pytest.raises(FileError, match="holds a dict and not a list"):
+        JsonCatalog(written(tmp_path / "c.json", {"Kit": 1})).prices()
+    with pytest.raises(FileError, match="holds a list and not a dict"):
+        JsonMargins(written(tmp_path / "m.json", [0.5])).margins()
+
+
+def test_a_history_is_looked_up_by_address_in_any_case_and_is_empty_for_a_stranger(tmp_path):
+    history = JsonHistory(written(tmp_path / "h.json", {"Ivo@Example.com": ["Kit", "Kit"]}))
+    assert history.orders("ivo@example.com") == ["Kit", "Kit"]
+    assert history.orders("IVO@EXAMPLE.COM") == ["Kit", "Kit"]
+    assert history.orders("nobody@example.com") == []
+
+
+def test_a_history_that_is_not_a_list_of_orders_is_refused(tmp_path):
+    history = JsonHistory(written(tmp_path / "h.json", {"ivo@example.com": "Kit"}))
+    with pytest.raises(FileError, match="is not a list"):
+        history.orders("ivo@example.com")
+
+
+def test_a_seller_the_domain_refuses_is_refused_as_a_broken_file(tmp_path):
+    row = {
+        "name": "Ada Fenwick",
+        "segments": "retail",
+        "smallest_ticket": 0,
+        "largest_ticket": 10,
+        "languages": ["en"],
+    }
+    with pytest.raises(FileError, match="'Ada Fenwick' in .* is not a seller"):
+        JsonRoster(written(tmp_path / "s.json", [row])).sellers()
+    del row["languages"]
+    with pytest.raises(FileError, match="has no languages"):
+        JsonRoster(written(tmp_path / "s.json", [row])).sellers()
