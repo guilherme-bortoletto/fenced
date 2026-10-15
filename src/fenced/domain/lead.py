@@ -1,7 +1,9 @@
-"""A lead, and the five levels of awareness a message can show.
+"""A lead, the five levels of awareness a message can show, and the sets beside them.
 
 The model reads free text and returns fields. This module decides whether those
-fields are a lead at all, and it refuses rather than coerces. Everything here is
+fields are a lead at all, and it refuses rather than coerces. The segment and the
+language are closed sets written here, the way awareness is. The products are names
+as the person wrote them, and nothing here asks whether a catalog carries them. Everything here is
 a pure function of what is passed in, so the rules can be read and tested with no
 network, no file and no real clock.
 """
@@ -14,6 +16,8 @@ from dataclasses import dataclass
 from enum import Enum
 
 REQUIRED = ("name", "email", "message")
+# Every field `Lead.from_fields` reads, in the order a lead carries them.
+FIELDS = (*REQUIRED, "awareness", "segment", "language", "products")
 # Characters that take no space and are not whitespace to `str.strip`.
 INVISIBLE = "\u200b\u200c\u200d\u2060\ufeff"
 SEPARATORS = re.compile(r"[\s\-_]+")
@@ -33,6 +37,36 @@ class InvalidEmail(LeadError):
 
 class UnknownAwareness(LeadError):
     """A level of awareness that is not one of the five."""
+
+
+class UnknownSegment(LeadError):
+    """A segment that is not one of those written in `Segment`."""
+
+
+class UnknownLanguage(LeadError):
+    """A language that is not one of those written in `Language`."""
+
+
+class InvalidProducts(LeadError):
+    """Products that are not a sequence of names written as text."""
+
+
+def _closed(kind: type[Enum], value: object, what: str, refusal: type[LeadError]) -> Enum:
+    """One member of a closed set out of what the model returned, or a refusal.
+
+    Spacing, case, hyphens and underscores are forgiven, because they are spelling
+    and not meaning. A value that is not in the set is not forgiven.
+    """
+    known = ", ".join(member.value for member in kind)
+    if isinstance(value, kind):
+        return value
+    if not isinstance(value, str):
+        raise refusal(f"{what} is one of {known}, written as text, not {type(value).__name__}")
+    wanted = SEPARATORS.sub("_", value.strip().lower())
+    for member in kind:
+        if wanted == member.value:
+            return member
+    raise refusal(f"{value!r} is not one of {known}")
 
 
 class Awareness(Enum):
@@ -55,18 +89,70 @@ class Awareness(Enum):
         Spacing, case, hyphens and underscores are forgiven, because they are
         spelling and not meaning. A sixth level is not forgiven.
         """
-        known = ", ".join(level.value for level in cls)
-        if isinstance(value, cls):
-            return value
-        if not isinstance(value, str):
-            raise UnknownAwareness(
-                f"an awareness is one of {known}, written as text, not {type(value).__name__}"
-            )
-        wanted = SEPARATORS.sub("_", value.strip().lower())
-        for level in cls:
-            if wanted == level.value:
-                return level
-        raise UnknownAwareness(f"{value!r} is not one of {known}")
+        return _closed(cls, value, "an awareness", UnknownAwareness)
+
+
+class Segment(Enum):
+    """The kind of business the person runs, closed on purpose.
+
+    Matching reads the segment against what each seller covers. A segment outside
+    this list would match no seller and would look like a routing problem when it is
+    a reading problem, so it is refused here instead.
+    """
+
+    FOOD = "food"
+    RETAIL = "retail"
+    WHOLESALE = "wholesale"
+    MANUFACTURING = "manufacturing"
+    HEALTH = "health"
+
+    @classmethod
+    def parse(cls, value: object) -> Segment:
+        """Turn what the model returned into one of the segments, or refuse it."""
+        return _closed(cls, value, "a segment", UnknownSegment)
+
+
+class Language(Enum):
+    """The language the person wrote in, as its two letter code, closed on purpose.
+
+    A reply is written in one of these and a seller speaks some of them. A language
+    outside this list is one nobody here can answer in, so it is refused here rather
+    than passed on as a code nobody checks.
+    """
+
+    ENGLISH = "en"
+    PORTUGUESE = "pt"
+    SPANISH = "es"
+    FRENCH = "fr"
+    GERMAN = "de"
+    ITALIAN = "it"
+
+    @classmethod
+    def parse(cls, value: object) -> Language:
+        """Turn what the model returned into one of the languages, or refuse it."""
+        return _closed(cls, value, "a language", UnknownLanguage)
+
+
+def _products(value: object) -> tuple[str, ...]:
+    """The products a person named, each trimmed and each once, in the order named.
+
+    A product is a name as the person wrote it. An empty list is a person who named
+    none, which is a lead like any other. A bare string is refused rather than read
+    letter by letter, and a blank or a null among the names is refused rather than
+    dropped, because it says the reading went wrong.
+    """
+    if not isinstance(value, (list, tuple)):
+        raise InvalidProducts(f"a lead names products in a list, not in a {type(value).__name__}")
+    names: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            raise InvalidProducts(f"a product is named in text, not in a {type(item).__name__}")
+        name = item.strip().strip(INVISIBLE).strip()
+        if not name:
+            raise InvalidProducts("a product with no name is not a product")
+        if name not in names:
+            names.append(name)
+    return tuple(names)
 
 
 def _as_text(value: object, field: str) -> str:
@@ -112,11 +198,17 @@ class Lead:
     email: str
     message: str
     awareness: Awareness
+    segment: Segment
+    language: Language
+    products: tuple[str, ...]
 
     def __post_init__(self) -> None:
         for field in REQUIRED:
             object.__setattr__(self, field, _as_text(getattr(self, field), field))
         object.__setattr__(self, "awareness", Awareness.parse(self.awareness))
+        object.__setattr__(self, "segment", Segment.parse(self.segment))
+        object.__setattr__(self, "language", Language.parse(self.language))
+        object.__setattr__(self, "products", _products(self.products))
         _refuse_unreachable(self.email)
 
     @classmethod
@@ -128,12 +220,7 @@ class Lead:
         """
         if not isinstance(fields, Mapping):
             raise MissingField(f"a lead is built from a mapping, not a {type(fields).__name__}")
-        missing = [name for name in (*REQUIRED, "awareness") if name not in fields]
+        missing = [name for name in FIELDS if name not in fields]
         if missing:
             raise MissingField(f"a lead needs {', '.join(missing)}")
-        return cls(
-            name=fields["name"],
-            email=fields["email"],
-            message=fields["message"],
-            awareness=fields["awareness"],
-        )
+        return cls(**{name: fields[name] for name in FIELDS})

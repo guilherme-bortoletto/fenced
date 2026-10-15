@@ -10,6 +10,7 @@ import io
 import json
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 import pytest
 
@@ -27,11 +28,12 @@ from fenced.adapters.llm_extractor import (
     LlmExtractor,
     MissingKey,
 )
-from fenced.domain.lead import Awareness, Lead
+from fenced.domain.lead import FIELDS, Awareness, Language, Lead, Segment
 from fenced.writes.executor import apply
 from fenced.writes.plan import plan
 from fenced.writes.undo import undo
 
+ROOT = Path(__file__).resolve().parent.parent
 KEY = "test-key-not-a-real-one"
 RECORD = {"name": "Rita Calloway", "email": "rita@example.com"}
 
@@ -87,7 +89,9 @@ def test_the_journal_refuses_a_line_that_is_not_a_numbered_entry(tmp_path, line)
 
 
 def test_the_write_layer_applies_and_undoes_through_the_two_files(tmp_path):
-    lead = Lead("Rita Calloway", "rita@example.com", "We throw bread away.", "unaware")
+    lead = Lead(
+        "Rita Calloway", "rita@example.com", "We throw bread away.", "unaware", "food", "en", ()
+    )
     crm, journal = JsonCrm(tmp_path / "store.json"), JsonJournal(tmp_path / "journal.jsonl")
     outcome = apply(plan(crm, [lead]), crm, journal, really=True)
     assert outcome.entry == 1
@@ -171,16 +175,68 @@ def test_the_fake_extractor_reads_the_most_aware_level_it_finds(text, awareness)
 
 
 def test_the_fake_extractor_reads_the_signature_and_the_address():
-    text = "Hello.\n\nRita Calloway\nWrite to rita@example.com."
+    text = "Hello, we run the bakery.\n\nRita Calloway\nWrite to rita@example.com."
     assert FakeExtractor().extract(text) == {
         "name": "Rita Calloway",
         "email": "rita@example.com",
         "awareness": "unaware",
+        "segment": "food",
+        "language": "en",
+        "products": [],
     }
 
 
 def test_the_fake_extractor_leaves_out_an_address_it_cannot_find():
     assert "email" not in FakeExtractor().extract("Call me back.\n\nTess")
+
+
+@pytest.mark.parametrize(
+    ("text", "segment"),
+    [
+        ("We run a bakery.", Segment.FOOD),
+        ("Our dental practice runs out of gloves.", Segment.HEALTH),
+        ("The factory floor is a mess.", Segment.MANUFACTURING),
+        ("Our two warehouses never agree.", Segment.WHOLESALE),
+        ("We sell from one shop.", Segment.RETAIL),
+        ("The workshop is busy.", None),
+        ("Nothing about a business at all.", None),
+    ],
+)
+def test_the_fake_extractor_reads_the_segment_from_the_first_row_it_finds(text, segment):
+    found = FakeExtractor().extract(text).get("segment")
+    assert found == (None if segment is None else segment.value)
+
+
+@pytest.mark.parametrize(
+    ("text", "language"),
+    [
+        ("We need the scanner and the counter.", Language.ENGLISH),
+        ("Abbiamo un negozio e il nostro magazzino che non torna.", Language.ITALIAN),
+        ("Wir haben einen Laden und der Bestand stimmt nicht.", Language.GERMAN),
+        ("Nous avons une boutique et notre stock est faux.", Language.FRENCH),
+        ("Xyz qrs.", None),
+    ],
+)
+def test_the_fake_extractor_reads_the_language_with_the_most_of_its_words(text, language):
+    found = FakeExtractor().extract(text).get("language")
+    assert found == (None if language is None else language.value)
+
+
+def test_the_fake_extractor_reads_runs_of_capitals_as_products_and_skips_the_signature():
+    text = (
+        "How much is the Shelf Scanner? We also want the Starter Kit and the Shelf Scanner.\n"
+        "\nNoor Haddad\nnoor@example.org"
+    )
+    assert FakeExtractor().extract(text)["products"] == ["Shelf Scanner", "Starter Kit"]
+
+
+def test_every_example_message_is_read_into_all_six_fields_but_the_one_with_no_address():
+    messages = json.loads((ROOT / "examples" / "messages.json").read_text(encoding="utf-8"))
+    short = {}
+    for message in messages:
+        found = FakeExtractor().extract(message["text"])
+        short[message["id"]] = sorted(set(FIELDS) - {"message"} - set(found))
+    assert short == {message["id"]: [] for message in messages} | {"m6": ["email"]}
 
 
 # The model extractor.
@@ -230,6 +286,37 @@ def test_the_model_extractor_sends_the_key_the_prompt_and_the_schema():
     schema = body["output_config"]["format"]["schema"]
     assert schema["properties"]["awareness"]["enum"] == [level.value for level in Awareness]
     assert KEY not in json.dumps(body)
+
+
+def test_the_schema_asks_for_six_fields_and_lets_the_model_say_none_of_these():
+    schema = llm_extractor.SCHEMA
+    assert sorted(schema["required"]) == sorted(set(FIELDS) - {"message"})
+    assert sorted(schema["properties"]) == sorted(schema["required"])
+    assert schema["additionalProperties"] is False
+    assert schema["properties"]["products"] == {"type": "array", "items": {"type": "string"}}
+    for field, kind in (("language", Language), ("segment", Segment)):
+        assert schema["properties"][field]["enum"] == [member.value for member in kind] + [""]
+
+
+@pytest.mark.parametrize("member", [*Language, *Segment], ids=lambda member: member.value)
+def test_the_prompt_names_every_language_and_every_segment_the_domain_accepts(member):
+    assert f" {member.value} for " in llm_extractor.SYSTEM_PROMPT
+
+
+def test_an_answer_with_the_six_fields_crosses_the_boundary():
+    fields = {
+        "name": "Giulia Ferri",
+        "email": "giulia.ferri@example.com",
+        "awareness": "unaware",
+        "products": ["Shelf Scanner"],
+        "language": "it",
+        "segment": "retail",
+    }
+    found = LlmExtractor({KEY_VARIABLE: KEY}, send=Sender(answer(fields))).extract("Ciao")
+    lead = Lead.from_fields({**found, "message": "Ciao"})
+    assert (lead.language, lead.segment, lead.products) == (
+        Language.ITALIAN, Segment.RETAIL, ("Shelf Scanner",)
+    )
 
 
 def test_the_model_can_be_changed_from_the_environment():
