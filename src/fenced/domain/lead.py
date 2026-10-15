@@ -48,7 +48,7 @@ class UnknownLanguage(LeadError):
 
 
 class InvalidProducts(LeadError):
-    """Products that are not a sequence of names written as text."""
+    """Products that are not a list of names written as text."""
 
 
 def _closed(kind: type[Enum], value: object, what: str, refusal: type[LeadError]) -> Enum:
