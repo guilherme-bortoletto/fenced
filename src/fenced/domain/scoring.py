@@ -127,9 +127,10 @@ def _amount(value: object, what: str, ceiling: Decimal | None = None) -> Decimal
     return number
 
 
-def revenue_score(wanted: object, catalog: object) -> Decimal:
-    """What the lead asked about, against the basket that already wins the dimension.
+def ticket(wanted: object, catalog: object) -> Decimal:
+    """What the catalog prices the products the lead asked about at, added up exactly.
 
+    This is the ticket matching reads, and the number the revenue dimension divides.
     The prices come from the catalog and from nowhere else, so a number the model
     read in a message moves nothing.
     """
@@ -138,7 +139,14 @@ def revenue_score(wanted: object, catalog: object) -> Decimal:
         total = ZERO
         for name in names:
             total += _amount(_looked_up(name, catalog, "catalog"), f"the price of {name!r}")
-        return _bounded(total / FULL_REVENUE)
+        return total
+
+
+def revenue_score(wanted: object, catalog: object) -> Decimal:
+    """The ticket, against the basket that already wins the dimension."""
+    basket = ticket(wanted, catalog)
+    with localcontext(CONTEXT):
+        return _bounded(basket / FULL_REVENUE)
 
 
 def recurrence_score(history: object) -> Decimal:

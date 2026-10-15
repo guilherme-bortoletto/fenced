@@ -6,9 +6,9 @@ The rules below are not advice. They are `tests/test_fences.py`. They run in CI 
 again before every commit an agent makes in here, through the hook in `.claude/settings.json`.
 
 The fences are in and green, and the domain sits behind them. The command line reads invented
-messages, turns each one into a lead, names its next step and when it is due, and plans the write
-that records it. Scoring, matching and the reply are domain code with their own tests, and the
-command line does not call them yet.
+messages, turns each one into a lead, names its next step and when it is due, scores it, names
+the seller who takes it, and plans the write that records it. The reply is domain code with its
+own tests, and the command line does not call it yet.
 
 ## Why
 
@@ -79,36 +79,43 @@ enough to read it off.
 14. `docs/adr/0016-a-reply-is-a-template-of-typed-fields.md`. Why a value proves which source built
     it, and what happens to a number nobody can answer for.
 15. `src/fenced/ports/`. The record store and the journal, as the methods the write layer calls,
-    and the extractor, the clock and the inbox, as what the command line asks of each. Nothing
-    there says where anything lives.
+    and the extractor, the clock, the inbox, the catalog, the margin table, the purchase history
+    and the roster, as what the command line asks of each. Nothing there says where anything
+    lives.
 16. `src/fenced/writes/`. A write as a plan and its diff, an executor that simulates unless it is
     told otherwise, a journal entry written before the store, and an undo read from that entry.
 17. `docs/adr/0018-a-write-is-journaled-first-and-undone-from-the-journal-alone.md`. Why the entry
     goes first, why it keeps a hash and not the text, and what a write that fails halfway leaves.
 18. `src/fenced/adapters/`. The outside world. The store and the journal as files, the inbox,
-    a clock, a fake extractor that reads by fixed rules, and `llm_extractor.py`, the only file
-    that names a model provider.
+    a clock, a fake extractor that reads by fixed rules, the four tables in `json_tables.py`, and
+    `llm_extractor.py`, the only file that names a model provider.
 19. `src/fenced/app/cli.py`. The command line. It reads `examples/messages.json`, prints each
     lead with its next step and when that step is due, then its segment, its language and the
-    products the person named, and shows the plan. It writes only with
-    `--write`, and `fenced undo N` takes a run back by the number it was written as.
-20. `docs/adr/0019-the-command-line-simulates-with-the-fake-extractor-unless-told-otherwise.md`.
+    products the person named, then its score in three parts and a total and the seller who
+    takes it, and shows the plan. A lead scoring or matching refuses prints the refusal by name.
+    It writes only with `--write`, and `fenced undo N` takes a run back by the number it was
+    written as.
+20. `examples/`. The invented messages, and the invented catalog, margin table, purchase
+    history and roster a run scores and matches against.
+21. `docs/adr/0019-the-command-line-simulates-with-the-fake-extractor-unless-told-otherwise.md`.
     Why the default run needs no key, why the message is never the model's, and what a run id is.
-21. `docs/adr/0020-the-model-returns-fields-and-nothing-else.md`. Why the model is asked for
+22. `docs/adr/0020-the-model-returns-fields-and-nothing-else.md`. Why the model is asked for
     fields and nothing more.
-22. `docs/adr/0024-what-a-wrong-product-language-or-segment-costs.md`. What a wrong product, a
+23. `docs/adr/0024-what-a-wrong-product-language-or-segment-costs.md`. What a wrong product, a
     wrong language and a wrong segment cost, and why each one is refused where it is.
-23. `docs/adr/0021-no-secret-enters-the-tree.md`. What the fence on secrets catches and what it
+24. `docs/adr/0025-a-lead-nobody-can-take-is-still-written.md`. Why a lead nobody can take is
+    still written, and why the score and the seller are printed and not stored.
+25. `docs/adr/0021-no-secret-enters-the-tree.md`. What the fence on secrets catches and what it
     misses, each as far as a named test proves it.
-24. `SECURITY.md`. How to report a problem, and what this repository promises about secrets and
+26. `SECURITY.md`. How to report a problem, and what this repository promises about secrets and
     data.
-25. `AGENTS.md`. The rules an agent works under in here, from what never enters the tree to
+27. `AGENTS.md`. The rules an agent works under in here, from what never enters the tree to
     the shape of a pull request.
-26. `.github/workflows/pull-request.yml`. The job that opens a pull request from a runner, with
+28. `.github/workflows/pull-request.yml`. The job that opens a pull request from a runner, with
     the text the branch carries and the rules `main` carries.
-27. `scripts/publish.py`. The one way a pull request body leaves this repository, once and never
+29. `scripts/publish.py`. The one way a pull request body leaves this repository, once and never
     edited.
-28. `docs/adr/0008-a-pull-request-is-opened-from-a-workflow-runner.md`. Why that call is made
+30. `docs/adr/0008-a-pull-request-is-opened-from-a-workflow-runner.md`. Why that call is made
     from a runner and not from the machine the code is written on.
 
 A new file gets its line here with the pull request that adds it.
@@ -141,7 +148,7 @@ runs offline. The command line also runs straight from the clone with nothing in
 The command line, over the invented messages in `examples/`.
 
 ```
-fenced run                  # show each lead, its next step and the plan, and write nothing
+fenced run                  # show each lead, its next step, its score, its seller and the plan
 fenced run --write          # write the plan and journal it as run 1
 fenced undo 1               # show what taking run 1 back would change
 fenced undo 1 --write       # take it back
@@ -149,6 +156,8 @@ fenced undo 1 --write       # take it back
 
 The store and the journal are files under `.fenced/`, which git leaves out. `--store` puts them
 somewhere else, and `--now` reads the windows against a moment you give instead of the clock.
+`--catalog`, `--margins`, `--history` and `--sellers` read the four tables from files of your own
+instead of the invented ones.
 
 No key, no network, no service. If any command here asks you for a credential, that is a bug.
 The one exception is a run with `--extractor model`, which reads the key from

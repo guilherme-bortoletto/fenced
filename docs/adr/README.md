@@ -33,3 +33,4 @@ below fails the build, and so does a row below that points at a file that is not
 | [0022 A pull request that carries another account is opened and then turns the job red](0022-a-pull-request-that-carries-another-account-turns-the-job-red.md) | accepted |
 | [0023 A pull request body is published by the push that changed it](0023-a-body-is-published-by-the-push-that-wrote-it.md) | accepted |
 | [0024 What a wrong product, language or segment costs](0024-what-a-wrong-product-language-or-segment-costs.md) | accepted |
+| [0025 A lead nobody can take is still written to the store](0025-a-lead-nobody-can-take-is-still-written.md) | accepted |

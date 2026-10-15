@@ -15,15 +15,26 @@ import re
 import socket
 import subprocess
 import sys
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
 
 from fenced.app.cli import main
+from fenced.domain.matching import Need, NobodyEligible, Seller, match
+from fenced.domain.scoring import WEIGHTS, score, ticket
 
 ROOT = Path(__file__).resolve().parent.parent
 EXAMPLES = ROOT / "examples"
 INBOX = EXAMPLES / "messages.json"
+# The four tables a run scores and matches against, passed by path so a run reads the same
+# files from any folder.
+TABLES = (
+    "--catalog", str(EXAMPLES / "catalog.json"),
+    "--margins", str(EXAMPLES / "margins.json"),
+    "--history", str(EXAMPLES / "history.json"),
+    "--sellers", str(EXAMPLES / "sellers.json"),
+)
 # Late for the two most aware leads of the examples and open for the other five.
 NOW = "2026-10-06T10:00:00+00:00"
 LEADS = 7
@@ -51,7 +62,7 @@ def fenced(*argv, store, environ=None):
 
 
 def run(store, *extra):
-    return fenced("run", "--inbox", str(INBOX), "--now", NOW, *extra, store=store)
+    return fenced("run", "--inbox", str(INBOX), "--now", NOW, *TABLES, *extra, store=store)
 
 
 def held(store):
@@ -95,6 +106,127 @@ def test_every_lead_of_the_examples_names_its_fields_and_most_name_a_product(tmp
     asked = [line for line in out.splitlines() if ", products " in line]
     assert len(asked) == LEADS
     assert sum("none named" not in line for line in asked) >= LEADS - 1
+
+
+def test_a_run_prints_the_score_of_each_lead_and_the_seller_the_match_picks(tmp_path):
+    out = run(tmp_path / "store")[1]
+    assert (
+        "message m2 from Otto Brennan <otto.brennan@example.org>\n"
+        "  problem_aware, next ask_what_was_tried within 48 hours, "
+        "due 2026-10-07T09:40:00+00:00, open\n"
+        "  retail, en, products 'Stock Counter'\n"
+        "  score revenue 0.190, recurrence 0.667, margin 0.350, total 0.3334\n"
+        "  ticket 950, taken by Ada Fenwick\n"
+    ) in out
+    assert "  score revenue 0.550, recurrence 0.000, margin 0.385, total 0.3905\n" in out
+    assert "  ticket 2750, taken by Bram Holt\n" in out
+    assert "  score revenue 0.360, recurrence 1.000, margin 0.420, total 0.5060\n" in out
+
+
+def test_a_lead_scoring_or_matching_refuses_prints_the_refusal_by_name(tmp_path):
+    out = run(tmp_path / "store")[1]
+    assert "  not scored, NothingToScore, a lead that names no product" in out
+    assert "  not scored, UnknownProduct, 'Starter Kit' is not in the catalog\n" in out
+    assert (
+        "  ticket 950, nobody takes it, NobodyEligible, "
+        "no seller covers 'health' at 950 in 'en'\n"
+    ) in out
+    assert (
+        "  ticket 1800, nobody takes it, NobodyEligible, "
+        "no seller covers 'retail' at 1800 in 'it'\n"
+    ) in out
+
+
+SCORE_LINE = re.compile(
+    r"^  score revenue (\S+), recurrence (\S+), margin (\S+), total (\S+)$", re.MULTILINE
+)
+
+
+def test_every_number_printed_is_one_scoring_and_matching_produced(tmp_path):
+    out = run(tmp_path / "store")[1]
+    catalog = {
+        row["name"]: row["price"]
+        for row in json.loads((EXAMPLES / "catalog.json").read_text(encoding="utf-8"))
+    }
+    margins = json.loads((EXAMPLES / "margins.json").read_text(encoding="utf-8"))
+    history = json.loads((EXAMPLES / "history.json").read_text(encoding="utf-8"))
+    sellers = [
+        Seller(**row)
+        for row in json.loads((EXAMPLES / "sellers.json").read_text(encoding="utf-8"))
+    ]
+    blocks = re.split(r"^message ", out.split("\n\nplan for")[0], flags=re.MULTILINE)[1:]
+    judged = 0
+    for block in blocks:
+        found = SCORE_LINE.search(block)
+        if found is None:
+            continue
+        judged += 1
+        address = re.search(r"<([^>]+)>", block).group(1)
+        segment, language, named = re.search(
+            r"^  (\w+), (\w+), products (.+)$", block, re.MULTILINE
+        ).groups()
+        products = re.findall(r"'([^']+)'", named)
+        scored = score(products, catalog, history.get(address, []), margins)
+        assert found.groups() == tuple(
+            str(part) for part in (scored.revenue, scored.recurrence, scored.margin, scored.total)
+        )
+        basket = ticket(products, catalog)
+        assert f"  ticket {basket}, " in block
+        try:
+            assert f"taken by {match(Need(segment, basket, language), sellers).name}\n" in block
+        except NobodyEligible:
+            assert "nobody takes it, NobodyEligible" in block
+    assert judged == 5
+
+
+def test_each_total_printed_is_the_weighted_sum_of_the_parts_beside_it(tmp_path):
+    out = run(tmp_path / "store")[1]
+    found = SCORE_LINE.findall(out)
+    assert found
+    for revenue, recurrence, margin, total in found:
+        assert Decimal(total) == (
+            WEIGHTS["revenue"] * Decimal(revenue)
+            + WEIGHTS["recurrence"] * Decimal(recurrence)
+            + WEIGHTS["margin"] * Decimal(margin)
+        )
+
+
+def test_a_lead_nobody_can_take_is_still_written_and_so_is_one_never_scored(tmp_path):
+    store = tmp_path / "store"
+    code, out, _ = run(store, "--write")
+    assert code == 0
+    records = held(store)
+    for address in (
+        "hana.okafor@example.net",
+        "giulia.ferri@example.com",
+        "noor@example.org",
+        "rita@example.com",
+    ):
+        assert address in records
+    # The record keeps what it kept before. The score and the seller are printed, not stored.
+    assert set(records["hana.okafor@example.net"]) == {"name", "email", "awareness", "text_sha256"}
+
+
+def test_a_roster_that_carries_one_name_twice_is_refused_before_any_lead_is_printed(tmp_path):
+    sellers = json.loads((EXAMPLES / "sellers.json").read_text(encoding="utf-8"))
+    twice = tmp_path / "sellers.json"
+    twice.write_text(json.dumps([*sellers, sellers[0]]), encoding="utf-8")
+    store = tmp_path / "store"
+    code, out, err = run(store, "--sellers", str(twice), "--write")
+    assert (code, out) == (1, "")
+    assert err.startswith("refused, row 4 of ")
+    assert "carries the name 'Ada Fenwick' a second time" in err
+    assert not store.exists()
+
+
+def test_a_price_scoring_will_not_add_up_stops_the_run_instead_of_repeating(tmp_path):
+    catalog = tmp_path / "catalog.json"
+    catalog.write_text(json.dumps([{"name": "Shelf Scanner", "price": "a lot"}]), "utf-8")
+    store = tmp_path / "store"
+    code, _, err = run(store, "--catalog", str(catalog), "--write")
+    assert code == 1
+    assert err == "refused, the price of 'Shelf Scanner' is a number, not a str\n"
+    assert not store.exists()
 
 
 def test_the_clock_decides_which_step_is_late(tmp_path):
@@ -210,7 +342,7 @@ def test_python_dash_m_fenced_runs_the_same_command(tmp_path):
     }
     environ["PYTHONPATH"] = str(ROOT / "src")
     finished = subprocess.run(
-        [sys.executable, "-m", "fenced", "run", "--inbox", str(INBOX), "--now", NOW,
+        [sys.executable, "-m", "fenced", "run", "--inbox", str(INBOX), "--now", NOW, *TABLES,
          "--store", str(tmp_path / "store")],
         capture_output=True,
         text=True,
@@ -220,6 +352,7 @@ def test_python_dash_m_fenced_runs_the_same_command(tmp_path):
     )
     assert (finished.returncode, finished.stderr) == (0, "")
     assert "simulated, nothing was written" in finished.stdout
+    assert "  ticket 1800, taken by Ada Fenwick\n" in finished.stdout
 
 
 # The examples are invented, and the issue that asked for them asked for no phone number.

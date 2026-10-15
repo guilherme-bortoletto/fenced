@@ -23,6 +23,7 @@ from fenced.domain.scoring import (
     recurrence_score,
     revenue_score,
     score,
+    ticket,
 )
 
 # Invented on purpose, in round numbers, so nobody reads them as a price list.
@@ -90,6 +91,26 @@ def test_a_product_priced_at_the_ceiling_wins_the_dimension_on_its_own():
     # The ceiling caps a basket. What one product is worth is the catalog to decide.
     assert max(CATALOG.values()) < FULL_REVENUE
     assert revenue_score(["whole"], {"whole": FULL_REVENUE}) == Decimal("1.000")
+
+
+def test_the_ticket_is_what_the_catalog_prices_the_products_at_with_no_ceiling():
+    assert ticket(["medium"], CATALOG) == Decimal("2000.0")
+    assert ticket(list(CATALOG), CATALOG) == Decimal("7000.0")
+    assert ticket(list(CATALOG), CATALOG) > FULL_REVENUE
+
+
+def test_the_ticket_is_the_number_the_revenue_dimension_divides():
+    for wanted in (["small"], ["small", "large"], ["medium", "medium"]):
+        assert revenue_score(wanted, CATALOG) == min(
+            ticket(wanted, CATALOG) / FULL_REVENUE, Decimal(1)
+        ).quantize(Decimal("0.001"))
+
+
+def test_the_ticket_refuses_what_revenue_refuses():
+    with pytest.raises(UnknownProduct):
+        ticket(["a medium of everything"], CATALOG)
+    with pytest.raises(NothingToScore):
+        ticket([], CATALOG)
 
 
 def test_a_product_named_twice_is_one_product():
