@@ -94,7 +94,8 @@ enough to read it off.
     products the person named, then its score in three parts and a total and the seller who
     takes it, then the reply as a draft for that seller to send, and shows the plan. A lead
     scoring or matching refuses prints the refusal by name, and a lead with no seller prints
-    why it has no draft. It sends nothing. It writes only with `--write`, and `fenced undo N`
+    why it has no draft. The replies are written in English, so a lead in another language
+    prints `WrongLanguage` where its draft would be. It sends nothing. It writes only with `--write`, and `fenced undo N`
     takes a run back by the number it was written as.
 20. `examples/`. The invented messages, and the invented catalog, margin table, purchase
     history and roster a run scores and matches against.
@@ -107,7 +108,7 @@ enough to read it off.
 24. `docs/adr/0025-a-lead-nobody-can-take-is-still-written.md`. Why a lead nobody can take is
     still written, and why the score and the seller are printed and not stored.
 25. `docs/adr/0026-a-draft-is-printed-and-kept-nowhere.md`. Why a draft is printed and kept in
-    no file, the journal least of all.
+    no file, the journal least of all, and why a lead in another language gets none.
 26. `docs/adr/0021-no-secret-enters-the-tree.md`. What the fence on secrets catches and what it
     misses, each as far as a named test proves it.
 27. `SECURITY.md`. How to report a problem, and what this repository promises about secrets and

@@ -15,7 +15,9 @@ seller the match picks at the ticket the catalog prices those products at. A lea
 names no product, names one the catalog does not carry, or that no seller can take prints
 that refusal by name instead, and is still planned like any other lead. A lead with a seller
 prints the reply as a draft for a person to send, and a lead with none prints why it has no
-draft. Nothing is sent and no draft is kept. Then it plans the write, prints the diff, and
+draft. A lead with a seller that wrote in a language the replies are not written in prints
+the refusal of the reply by name where its draft would be. Nothing is sent and no draft is
+kept. Then it plans the write, prints the diff, and
 applies it only when `--write` is passed. The id of a run is the number of the journal entry
 it wrote, and `undo` takes that number.
 
@@ -51,7 +53,7 @@ from fenced.adapters.llm_extractor import LlmError, LlmExtractor, MissingKey
 from fenced.domain.lead import Lead, LeadError
 from fenced.domain.matching import MatchError, Need, NobodyEligible, Seller, match
 from fenced.domain.playbook import next_step
-from fenced.domain.reply import ReplyError, draft
+from fenced.domain.reply import ReplyError, WrongLanguage, draft
 from fenced.domain.scoring import NothingToScore, ScoreError, UnknownProduct, score, ticket
 from fenced.ports.catalog import Catalog
 from fenced.ports.clock import Clock
@@ -81,6 +83,7 @@ EXTRACTORS: Mapping[str, Callable[[Mapping[str, str]], Extractor]] = {
 # that is not the shape it claims, and it stops the run rather than repeat once per lead.
 UNSCORED = (NothingToScore, UnknownProduct)
 UNMATCHED = (NobodyEligible,)
+UNDRAFTED = (WrongLanguage,)
 # What a lead with no seller prints where its draft would be. A reply names the seller who
 # writes back, so a lead nobody takes has no reply to draft.
 NO_DRAFT = "  no draft, a reply names the seller who takes the lead and this lead has none"
@@ -177,13 +180,13 @@ def _judged_lines(lead: Lead, tables: Tables) -> list[str]:
         seller = match(need, tables.sellers)
     except UNMATCHED as refused:
         lines += [f"  ticket {basket}, nobody takes it, {_refusal(refused)}", NO_DRAFT]
-    else:
-        lines += [
-            f"  ticket {basket}, taken by {seller.name}",
-            f"  draft for {seller.name} to send, nothing was sent",
-            f"    {draft(lead.awareness, lead.products, tables.prices, seller)}",
-        ]
-    return lines
+        return lines
+    lines.append(f"  ticket {basket}, taken by {seller.name}")
+    try:
+        text = draft(lead.awareness, lead.language, lead.products, tables.prices, seller)
+    except UNDRAFTED as refused:
+        return [*lines, f"  no draft, {_refusal(refused)}"]
+    return [*lines, f"  draft for {seller.name} to send, nothing was sent", f"    {text}"]
 
 
 def _show(outcome: Outcome, out: TextIO) -> None:

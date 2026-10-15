@@ -239,8 +239,41 @@ def test_every_draft_printed_is_the_one_the_reply_renders_for_that_lead(tmp_path
         products = re.findall(r"'([^']+)'", named)
         assert f"taken by {found.group(1)}\n" in block
         picked = sellers[found.group(1)]
-        assert found.group(2) == draft(Awareness.parse(level), products, catalog, picked)
+        language = re.search(r"^  \w+, (\w+), products ", block, re.MULTILINE).group(1)
+        assert found.group(2) == draft(
+            Awareness.parse(level), language, products, catalog, picked
+        )
     assert drafted == 3
+
+
+# A lead in Portuguese that names a product the catalog carries, from a shop, so a seller
+# who speaks Portuguese takes it. Matching passes and only the draft is refused.
+PORTUGUESE = {
+    "id": "p1",
+    "received_at": "2026-10-05T18:00:00+00:00",
+    "text": (
+        "Olá. Quanto custa o Shelf Scanner? Nossa loja não tem uma forma de contar o estoque."
+        "\n\nBruno Dias\nbruno@example.org"
+    ),
+}
+
+
+def test_a_lead_a_seller_takes_in_another_language_gets_no_draft_and_says_why(tmp_path):
+    inbox = tmp_path / "inbox.json"
+    inbox.write_text(json.dumps([PORTUGUESE]), encoding="utf-8")
+    code, out, err = fenced(
+        "run", "--inbox", str(inbox), "--now", NOW, *TABLES, store=tmp_path / "store"
+    )
+    assert (code, err) == (0, "")
+    assert "message p1 from Bruno Dias <bruno@example.org>\n" in out
+    assert "  retail, pt, products 'Shelf Scanner'\n" in out
+    assert (
+        "  ticket 1800, taken by Bram Holt\n"
+        "  no draft, WrongLanguage, the replies are written in en and this lead wrote in pt\n"
+    ) in out
+    assert DRAFT.search(out) is None
+    assert "Thanks for writing" not in out
+    assert "plan for 1 of 1 leads" in out
 
 
 def test_a_draft_is_kept_in_neither_file(tmp_path):

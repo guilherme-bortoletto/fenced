@@ -31,6 +31,18 @@ A draft is also text that leaves the building once a person sends it. Keeping it
 make that file the second place a sentence about a person lives, with an undo that record 0018
 never planned for.
 
+A draft is written in English or not at all. The five templates in `src/fenced/domain/reply.py`
+are English, and the language they are written in is `WRITTEN_IN`, a constant beside them. `draft`
+refuses a lead that wrote in any other language with `WrongLanguage` before it builds a field, and
+the command line prints that refusal by name where the draft would be. The rule sits in the domain
+because the command line decides nothing. Record 0024 says a wrong language is the costliest of the
+three new fields because it is the one the person sees, and a reply that goes out in a language the
+person did not write in is that cost paid in full. Matching can hand such a lead to a seller who
+speaks the language, and an English draft under that seller's name would undo what matching did. No
+draft leaves the seller to write the reply in the language the person wrote in. A wrong draft would
+leave the seller to notice it is wrong, and a seller who sends drafts as they come would not. A test
+plants a lead in Portuguese that a Portuguese speaking seller takes and finds no draft under it.
+
 ## Consequences
 
 A person who wants a draft reads it off the run. A run with `--write` prints the same drafts as a
